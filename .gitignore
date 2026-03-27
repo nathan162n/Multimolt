@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+.env
+*.local
+.DS_Store
+Thumbs.db
+.PROMPT.md
+PROMPT.md
