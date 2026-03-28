@@ -1,9 +1,177 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getAuthClient } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { syncSessionToMain, clearMainSession } from '../services/auth';
 
+// =============================================================================
+// Module-level auth listener — singleton that outlives component mount/unmount.
+// Uses useAuthStore.getState() so store actions are always fresh.
+// =============================================================================
+
+let authInitStarted = false;
+
+// Timeout for auth initialization — prevents hanging on unreachable Supabase
+const AUTH_INIT_TIMEOUT_MS = 8000;
+
+async function initAuthListener() {
+  if (authInitStarted) return;
+  authInitStarted = true;
+
+  const store = () => useAuthStore.getState();
+
+  // Safety timeout: if auth init takes too long, mark as initialized
+  // with no session so the user sees the sign-in page instead of a spinner.
+  const timeoutId = setTimeout(() => {
+    if (!store().initialized) {
+      console.warn('[Auth] Initialization timed out — showing sign-in page');
+      store().setSession(null);
+    }
+  }, AUTH_INIT_TIMEOUT_MS);
+
+  try {
+    const supabase = await getAuthClient();
+
+    // Register the auth state change listener — stays alive for the app's lifetime
+    supabase.auth.onAuthStateChange(async (event, newSession) => {
+      console.log(`[Auth] State changed: ${event}`);
+
+      if (event === 'SIGNED_OUT') {
+        store().clearSession();
+        clearMainSession().catch((err) =>
+          console.error('[Auth] Failed to clear main session:', err)
+        );
+        return;
+      }
+
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+        if (newSession?.access_token) {
+          try {
+            await syncSessionToMain(newSession.access_token);
+            if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+              window.hivemind.invoke('app:init-workspaces').catch((err) =>
+                console.warn('[Auth] Workspace init failed:', err)
+              );
+            }
+          } catch (err) {
+            console.error('[Auth] Failed to sync session to main:', err);
+          }
+        }
+        store().setSession(newSession);
+      }
+    });
+
+    // Explicitly fetch the initial session for reliability.
+    // onAuthStateChange fires INITIAL_SESSION, but we double-check here
+    // in case the listener missed it during setup.
+    const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      console.error('[Auth] Failed to restore session:', sessionError);
+      store().setSession(null);
+    } else if (initialSession?.access_token) {
+      try {
+        await syncSessionToMain(initialSession.access_token);
+      } catch (err) {
+        console.error('[Auth] Failed to sync restored session to main:', err);
+      }
+      store().setSession(initialSession);
+    } else {
+      // No session — mark as initialized but unauthenticated
+      store().setSession(null);
+    }
+  } catch (err) {
+    console.warn('[Auth] Initialization failed:', err.message);
+    store().setSession(null);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// =============================================================================
+// Module-level deep link handler — singleton, same pattern as auth listener.
+// =============================================================================
+
+let deepLinkRegistered = false;
+// navigateRef is written by the hook so the deep link handler can route
+let navigateRef = { current: null };
+
+function initDeepLinkHandler() {
+  if (deepLinkRegistered) return;
+  deepLinkRegistered = true;
+
+  const store = () => useAuthStore.getState();
+
+  window.hivemind.on('auth:handle-deep-link', async (eventPayload) => {
+    const { params } = eventPayload;
+    const nav = navigateRef.current;
+
+    try {
+      const supabase = await getAuthClient();
+
+      // PKCE flow: exchange authorization code for session tokens
+      if (params.code) {
+        console.log('[Auth] Exchanging PKCE code for session');
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
+        if (exchangeError) throw exchangeError;
+        // onAuthStateChange fires SIGNED_IN → store updates → RequireAuth unblocks
+        if (nav) nav('/', { replace: true });
+        return;
+      }
+
+      // Recovery flow: password reset deep link
+      if (params.type === 'recovery') {
+        if (params.access_token && params.refresh_token) {
+          await supabase.auth.setSession({
+            access_token: params.access_token,
+            refresh_token: params.refresh_token,
+          });
+        }
+        if (nav) nav('/auth/reset-password', { replace: true });
+        return;
+      }
+
+      // Email confirmation flow
+      if (params.type === 'email_confirmation' || params.type === 'signup') {
+        if (nav) nav('/auth/email-verified', { replace: true });
+        return;
+      }
+
+      // Implicit flow fallback: tokens in URL fragment
+      if (params.access_token && params.refresh_token) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        if (sessionError) throw sessionError;
+        if (nav) nav('/', { replace: true });
+        return;
+      }
+
+      // Error from OAuth provider
+      if (params.error || params.error_description) {
+        console.error('[Auth] OAuth error:', params.error, params.error_description);
+        throw new Error(params.error_description || 'Authentication was denied or failed.');
+      }
+
+      // No tokens or code — check if we already have a session
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        if (nav) nav('/', { replace: true });
+      } else {
+        throw new Error('Invalid authentication link.');
+      }
+    } catch (err) {
+      console.error('[Auth] Deep link handling failed:', err);
+      store().setError(err.message || 'Authentication failed. Please try again.');
+      if (nav) nav('/auth/signin', { replace: true });
+    }
+  });
+}
+
+// =============================================================================
 // User-friendly error mapping (hides internal Supabase codes)
+// =============================================================================
+
 const mapAuthError = (err) => {
   if (!err) return 'An unknown error occurred';
   const msg = err.message || '';
@@ -15,97 +183,31 @@ const mapAuthError = (err) => {
   return 'Authentication failed. Please try again.';
 };
 
+// =============================================================================
+// useAuth hook — reads from store, provides action methods, kicks off singletons
+// =============================================================================
+
 export function useAuth() {
   const { session, user, initialized, loading, error } = useAuthStore();
-  const setSession = useAuthStore((s) => s.setSession);
   const setLoading = useAuthStore((s) => s.setLoading);
   const setError = useAuthStore((s) => s.setError);
-  const clear = useAuthStore((s) => s.clear);
+  const clearSession = useAuthStore((s) => s.clearSession);
 
   const [rateLimit, setRateLimit] = useState({ attempts: 0, lockoutUntil: 0 });
+  const navigate = useNavigate();
 
-  // 1. Initialize Supabase Auth CLient & Listeners
+  // Keep navigateRef current for the deep link handler
   useEffect(() => {
-    let mounted = true;
-    let authListener = null;
+    navigateRef.current = navigate;
+  }, [navigate]);
 
-    async function init() {
-      try {
-        const supabase = await getAuthClient();
-        
-        // Listen for internal state changes (including token refresh)
-        const { data } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-          if (!mounted) return;
-          console.log(`[Auth] State changed: ${event}`);
+  // Kick off the module-level singletons on first mount (idempotent)
+  useEffect(() => {
+    initAuthListener();
+    initDeepLinkHandler();
+  }, []);
 
-          if (event === 'SIGNED_OUT') {
-            clear();
-            // Clear the main-process session so DB calls revert to anon
-            clearMainSession().catch((err) =>
-              console.error('[Auth] Failed to clear main session:', err)
-            );
-          } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
-            // Sync JWT to main process BEFORE updating the store.
-            // This ensures the main-process Supabase client is authenticated
-            // before RequireAuth unblocks and components start making DB calls.
-            if (newSession?.access_token) {
-              try {
-                await syncSessionToMain(newSession.access_token);
-                // After syncing auth, initialize workspaces (non-blocking)
-                if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-                  window.hivemind.invoke('app:init-workspaces').catch((err) =>
-                    console.warn('[Auth] Workspace init failed:', err)
-                  );
-                }
-              } catch (err) {
-                console.error('[Auth] Failed to sync session to main:', err);
-              }
-            }
-            setSession(newSession);
-          }
-        });
-        
-        authListener = data.subscription;
-
-        // Try to fetch initial session
-        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
-        if (mounted) {
-          if (sessionError) {
-            console.error('[Auth] Failed to restore session:', sessionError);
-            setSession(null);
-          } else {
-            // Sync restored session to main process BEFORE setting store
-            if (initialSession?.access_token) {
-              try {
-                await syncSessionToMain(initialSession.access_token);
-              } catch (err) {
-                console.error('[Auth] Failed to sync restored session to main:', err);
-              }
-            }
-            setSession(initialSession);
-          }
-        }
-      } catch (err) {
-        if (mounted) {
-          console.warn('[Auth] Initialization skipped or failed:', err.message);
-          setSession(null); // Mark as initialized but unauthenticated
-        }
-      }
-    }
-
-    if (!initialized) {
-      init();
-    }
-
-    return () => {
-      mounted = false;
-      if (authListener && authListener.unsubscribe) {
-        authListener.unsubscribe();
-      }
-    };
-  }, [initialized, setSession, clear]);
-
-  // Rate Limiting Check
+  // Rate Limiting
   const checkRateLimit = useCallback(() => {
     if (Date.now() < rateLimit.lockoutUntil) {
       const wait = Math.ceil((rateLimit.lockoutUntil - Date.now()) / 1000);
@@ -114,14 +216,14 @@ export function useAuth() {
   }, [rateLimit]);
 
   const recordFailure = useCallback(() => {
-    setRateLimit(prev => {
+    setRateLimit((prev) => {
       const attempts = prev.attempts + 1;
       const penaltySeconds = attempts >= 3 ? 12 : attempts >= 2 ? 6 : 3;
-      return { attempts, lockoutUntil: Date.now() + (penaltySeconds * 1000) };
+      return { attempts, lockoutUntil: Date.now() + penaltySeconds * 1000 };
     });
   }, []);
 
-  // 2. Auth Methods
+  // Auth Methods
   const signIn = useCallback(async (email, password) => {
     checkRateLimit();
     setLoading(true);
@@ -133,7 +235,18 @@ export function useAuth() {
         password,
       });
       if (sbError) throw sbError;
-      setRateLimit({ attempts: 0, lockoutUntil: 0 }); // clear on success
+      setRateLimit({ attempts: 0, lockoutUntil: 0 });
+
+      // Set session immediately so RequireAuth sees isAuthenticated: true
+      // before navigation occurs. The onAuthStateChange listener will also
+      // fire, but that is async and may run after navigate().
+      if (data?.session) {
+        useAuthStore.getState().setSession(data.session);
+        syncSessionToMain(data.session.access_token).catch((err) =>
+          console.error('[Auth] Failed to sync session after sign-in:', err)
+        );
+      }
+
       return { data, error: null };
     } catch (err) {
       recordFailure();
@@ -154,8 +267,20 @@ export function useAuth() {
       const { data, error: sbError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: {
+          emailRedirectTo: 'hivemind-os://auth/callback?type=email_confirmation',
+        },
       });
       if (sbError) throw sbError;
+
+      // If email confirmation is disabled, session is returned immediately
+      if (data?.session) {
+        useAuthStore.getState().setSession(data.session);
+        syncSessionToMain(data.session.access_token).catch((err) =>
+          console.error('[Auth] Failed to sync session after sign-up:', err)
+        );
+      }
+
       return { data, error: null };
     } catch (err) {
       recordFailure();
@@ -172,18 +297,16 @@ export function useAuth() {
     try {
       const supabase = await getAuthClient();
       await supabase.auth.signOut();
-      clear();
-      // Clear main-process session so DB reverts to anon
+      clearSession();
       await clearMainSession();
     } catch (err) {
       console.error('[Auth] Sign out error:', err);
-      // Force clear locally anyway
-      clear();
+      clearSession();
       clearMainSession().catch(() => {});
     } finally {
       setLoading(false);
     }
-  }, [setLoading, clear]);
+  }, [setLoading, clearSession]);
 
   const signInWithOAuth = useCallback(async (provider) => {
     setLoading(true);
@@ -193,12 +316,19 @@ export function useAuth() {
       const { data, error: sbError } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          // deep link protocol we registered in main process
           redirectTo: 'hivemind-os://auth/callback',
-          skipBrowserRedirect: false,
+          // In Electron, we MUST skip browser redirect and open externally.
+          // The will-navigate handler blocks navigation to external URLs.
+          skipBrowserRedirect: true,
         },
       });
       if (sbError) throw sbError;
+
+      // Open the OAuth URL in the system browser via IPC
+      if (data?.url) {
+        await window.hivemind.invoke('auth:open-external', { url: data.url });
+      }
+
       return { data, error: null };
     } catch (err) {
       const friendlyError = mapAuthError(err);
@@ -236,7 +366,7 @@ export function useAuth() {
     try {
       const supabase = await getAuthClient();
       const { data, error: sbError } = await supabase.auth.updateUser({
-        password: newPassword
+        password: newPassword,
       });
       if (sbError) throw sbError;
       return { data, error: null };
@@ -259,7 +389,7 @@ export function useAuth() {
         email: email.trim(),
         options: {
           emailRedirectTo: 'hivemind-os://auth/callback',
-        }
+        },
       });
       if (sbError) throw sbError;
       return { data, error: null };
@@ -281,7 +411,7 @@ export function useAuth() {
     loading,
     error,
     rateLimitLockout: Math.max(0, rateLimit.lockoutUntil - Date.now()),
-    
+
     // Actions
     signIn,
     signUp,

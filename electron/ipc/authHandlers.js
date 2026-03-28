@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcMain } = require('electron');
+const { ipcMain, shell } = require('electron');
 const secureTokenStorage = require('../services/secureTokenStorage');
 const { setUserSession, clearUserSession } = require('../services/supabase');
 
@@ -126,5 +126,39 @@ module.exports = function registerAuthHandlers(mainWindow) {
     return {
       data: { url, anonKey },
     };
+  });
+
+  // =========================================================================
+  // OPEN EXTERNAL — open OAuth URLs in system browser
+  //
+  // In Electron the will-navigate handler blocks external URLs, so OAuth
+  // must use skipBrowserRedirect:true and open the URL via shell.openExternal.
+  // Only Supabase auth URLs are allowed to prevent open-redirect abuse.
+  // =========================================================================
+
+  ipcMain.handle('auth:open-external', async (_event, { url }) => {
+    if (!url) return { error: 'url is required' };
+
+    try {
+      const parsed = new URL(url);
+
+      // Only allow Supabase auth URLs and well-known OAuth providers
+      const supabaseUrl = process.env.SUPABASE_URL || '';
+      const supabaseHost = supabaseUrl ? new URL(supabaseUrl).host : null;
+      const allowedHosts = [
+        supabaseHost,
+        'accounts.google.com',
+        'github.com',
+      ].filter(Boolean);
+
+      if (!allowedHosts.includes(parsed.host)) {
+        return { error: `Blocked: ${parsed.host} is not an allowed OAuth host` };
+      }
+
+      await shell.openExternal(url);
+      return { data: { opened: true } };
+    } catch (err) {
+      return { error: err.message };
+    }
   });
 };

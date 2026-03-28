@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Brain, Calendar, User, FileText } from 'lucide-react';
 import useAgentStore from '../store/agentStore';
-import { readMemory, readDailyLogs } from '../services/openclaw';
+import { readMemory, readDailyLogs } from '../services/fileService';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
@@ -7,6 +7,7 @@ import {
   Sparkles,
   Brain,
   Settings,
+  LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -18,6 +19,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useGateway } from '../../hooks/useGateway';
+import { useAuth } from '../../hooks/useAuth';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -70,7 +72,17 @@ function SidebarLink({ to, label, icon: Icon }) {
 
 export default function Sidebar() {
   const { status } = useGateway();
+  const { user, signOut, loading } = useAuth();
+  const navigate = useNavigate();
   const connected = status === 'connected';
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth/signin', { replace: true });
+  };
+
+  const userEmail = user?.email || '';
+  const userInitial = userEmail ? userEmail[0].toUpperCase() : '?';
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -97,7 +109,7 @@ export default function Sidebar() {
         {/* Gateway connection status */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 px-4 py-3">
+            <div className="flex items-center gap-2 px-4 py-2">
               <span
                 className={cn(
                   'block h-2 w-2 shrink-0 rounded-full',
@@ -117,6 +129,47 @@ export default function Sidebar() {
               : 'OpenClaw Gateway disconnected'}
           </TooltipContent>
         </Tooltip>
+
+        <Separator className="bg-[var(--color-border-light)]" />
+
+        {/* User profile and sign out */}
+        <div className="px-2 py-2 space-y-1">
+          {user && (
+            <div className="flex items-center gap-2 px-3 py-1.5">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg-elevated)] border border-[var(--color-border-medium)]">
+                <span className="font-[var(--font-body)] text-[length:var(--text-xs)] font-medium text-[var(--color-text-secondary)]">
+                  {userInitial}
+                </span>
+              </div>
+              <span className="truncate font-[var(--font-body)] text-[length:var(--text-xs)] text-[var(--color-text-secondary)]">
+                {userEmail}
+              </span>
+            </div>
+          )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                onClick={handleSignOut}
+                disabled={loading}
+                className={cn(
+                  'w-full justify-start gap-2.5 rounded-md px-3 py-2',
+                  'font-[var(--font-body)] text-[length:var(--text-sm)]',
+                  'text-[var(--color-text-secondary)]',
+                  'hover:bg-[var(--color-bg-elevated)]',
+                  'hover:text-[var(--color-status-error-dot)]'
+                )}
+              >
+                <LogOut size={16} className="shrink-0" />
+                <span>Sign Out</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={8}>
+              Sign out of HiveMind OS
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </nav>
     </TooltipProvider>
   );

@@ -4,6 +4,7 @@ const { ipcMain } = require('electron');
 const fs = require('fs').promises;
 const path = require('path');
 const { getSupabase } = require('../services/supabase');
+const requireAuth = require('./requireAuth');
 const {
   getOpenClawBase,
   getWorkspacePath,
@@ -44,6 +45,9 @@ module.exports = function registerFileSystemHandlers(mainWindow) {
   ipcMain.handle('file:write-soul', async (_event, { agentName, content }) => {
     if (!agentName) return { error: 'agentName is required' };
     if (typeof content !== 'string') return { error: 'content must be a string' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     const filePath = path.join(getWorkspacePath(agentName), 'SOUL.md');
     if (!isWithinOpenClaw(filePath)) {
@@ -93,6 +97,9 @@ module.exports = function registerFileSystemHandlers(mainWindow) {
   ipcMain.handle('file:write-agents', async (_event, { agentName, content }) => {
     if (!agentName) return { error: 'agentName is required' };
     if (typeof content !== 'string') return { error: 'content must be a string' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     const filePath = path.join(getWorkspacePath(agentName), 'AGENTS.md');
     if (!isWithinOpenClaw(filePath)) {

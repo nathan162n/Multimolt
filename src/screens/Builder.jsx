@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -53,12 +53,7 @@ const STEPS = [
   { key: 'review', label: 'Review', icon: ClipboardCheck },
 ];
 
-const AVAILABLE_MODELS = [
-  { value: 'gemini/gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-  { value: 'gemini/gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-  { value: 'gemini/gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
-];
-
+// Sandbox modes are protocol-level constants defined by OpenClaw — not environment-specific.
 const SANDBOX_MODES = [
   { value: 'all', label: 'All (full sandbox)' },
   { value: 'none', label: 'None (unrestricted)' },
@@ -81,7 +76,7 @@ function generateId(name) {
  * Step 1: Role definition
  * Name, auto-generated ID, role description, and model selection.
  */
-function RoleStep({ data, onUpdate }) {
+function RoleStep({ data, onUpdate, availableModels }) {
   const generatedId = useMemo(() => generateId(data.name || ''), [data.name]);
 
   return (
@@ -154,7 +149,7 @@ function RoleStep({ data, onUpdate }) {
               <SelectValue placeholder="Select a model" />
             </SelectTrigger>
             <SelectContent>
-              {AVAILABLE_MODELS.map((m) => (
+              {availableModels.map((m) => (
                 <SelectItem key={m.value} value={m.value}>
                   {m.label}
                 </SelectItem>
@@ -611,15 +606,40 @@ function ReviewStep({ data }) {
 export default function Builder() {
   const navigate = useNavigate();
   const addCustomAgent = useAgentStore((s) => s.addCustomAgent);
+  const agents = useAgentStore((s) => s.agents);
+  const fetchAgents = useAgentStore((s) => s.fetchAgents);
+
+  // Derive available models from existing agents in the DB
+  const availableModels = useMemo(() => {
+    const modelSet = new Set();
+    for (const agent of Object.values(agents)) {
+      if (agent.model) modelSet.add(agent.model);
+    }
+    if (modelSet.size === 0) {
+      // Fallback: if agents haven't loaded yet, provide a sensible default
+      modelSet.add('gemini/gemini-2.0-flash');
+    }
+    return Array.from(modelSet).map((m) => ({
+      value: m,
+      label: m.split('/').pop().replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    }));
+  }, [agents]);
+
+  useEffect(() => {
+    if (Object.keys(agents).length === 0) {
+      fetchAgents();
+    }
+  }, [agents, fetchAgents]);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState(null);
 
+  const defaultModel = availableModels[0]?.value || 'gemini/gemini-2.0-flash';
   const [agentData, setAgentData] = useState({
     name: '',
     role: '',
-    model: 'gemini/gemini-2.0-flash',
+    model: defaultModel,
     soul_content: '',
     agents_content: '',
     tools_allow: [],
@@ -697,7 +717,7 @@ export default function Builder() {
   const renderStep = () => {
     switch (currentStep) {
       case 0:
-        return <RoleStep data={agentData} onUpdate={updateData} />;
+        return <RoleStep data={agentData} onUpdate={updateData} availableModels={availableModels} />;
       case 1:
         return <SoulStep data={agentData} onUpdate={updateData} />;
       case 2:

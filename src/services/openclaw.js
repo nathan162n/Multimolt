@@ -79,37 +79,7 @@ export function disconnectGateway() {
 }
 
 // === FILE SYSTEM ===
-export function readSoul(agentId) {
-  return invoke('file:read-soul', { agentName: agentId });
-}
-
-export function writeSoul(agentId, content) {
-  return invoke('file:write-soul', { agentName: agentId, content });
-}
-
-export function readAgentsMd(agentId) {
-  return invoke('file:read-agents', { agentName: agentId });
-}
-
-export function writeAgentsMd(agentId, content) {
-  return invoke('file:write-agents', { agentName: agentId, content });
-}
-
-export function readMemory(agentId) {
-  return invoke('file:read-memory', { agentName: agentId });
-}
-
-export function readDailyLogs(agentId) {
-  return invoke('file:read-daily-logs', { agentName: agentId });
-}
-
-export function readHeartbeat(agentId) {
-  return invoke('file:read-heartbeat', { agentName: agentId });
-}
-
-export function writeHeartbeat(agentId, content) {
-  return invoke('file:write-heartbeat', { agentName: agentId, content });
-}
+// All file operations are in src/services/fileService.js — import from there.
 
 // === SKILLS ===
 export function listGlobalSkills() {

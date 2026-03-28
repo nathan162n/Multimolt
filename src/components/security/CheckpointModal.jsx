@@ -114,7 +114,7 @@ export default function CheckpointModal() {
                   paddingLeft: 32,
                 }}
               >
-                {activeCheckpoint.agentName} is requesting permission
+                {activeCheckpoint.agentId} is requesting permission
               </span>
             </div>
 
@@ -137,7 +137,7 @@ export default function CheckpointModal() {
                 >
                   Agent
                 </span>
-                <Badge label={activeCheckpoint.agentName} />
+                <Badge label={activeCheckpoint.agentId} />
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -152,7 +152,7 @@ export default function CheckpointModal() {
                 >
                   Action
                 </span>
-                <Badge label={activeCheckpoint.actionType} />
+                <Badge label={activeCheckpoint.action} />
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -168,8 +168,8 @@ export default function CheckpointModal() {
                   Risk
                 </span>
                 <Badge
-                  label={activeCheckpoint.riskLevel}
-                  variant={riskVariant[activeCheckpoint.riskLevel] || 'default'}
+                  label={activeCheckpoint.risk}
+                  variant={riskVariant[activeCheckpoint.risk] || 'default'}
                 />
               </div>
             </div>

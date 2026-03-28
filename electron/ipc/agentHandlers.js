@@ -2,7 +2,8 @@
 
 const { ipcMain } = require('electron');
 const gatewayBridge = require('./gatewayBridge');
-const { getSupabase } = require('../services/supabase');
+const { getSupabase, getUserId } = require('../services/supabase');
+const requireAuth = require('./requireAuth');
 const { writeConfig } = require('../services/openclawConfig');
 const { ensureWorkspace } = require('../services/workspaceManager');
 
@@ -34,6 +35,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
   // Falls back to Supabase if the Gateway is not connected.
   // ---------------------------------------------------------------------------
   ipcMain.handle('agent:list', async () => {
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     // Try the gateway first for live runtime state
     if (gatewayBridge.isConnected) {
       try {
@@ -64,6 +68,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
   // agent:get — Get a single agent by ID from the Gateway or Supabase.
   // ---------------------------------------------------------------------------
   ipcMain.handle('agent:get', async (_event, { id }) => {
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     if (gatewayBridge.isConnected) {
       try {
         const result = await gatewayBridge.request('agent.get', { agentId: id });
@@ -93,6 +100,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const record = {
       id: agent.id,
       name: agent.name,
@@ -105,6 +115,7 @@ module.exports = function registerAgentHandlers(mainWindow) {
       tools_deny: agent.tools_deny || agent.toolsDeny || [],
       sandbox_mode: agent.sandbox_mode || agent.sandboxMode || 'all',
       workspace: agent.workspace || `~/.openclaw/workspace-${agent.id}`,
+      user_id: auth.userId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -150,6 +161,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const record = {
       ...updates,
       updated_at: new Date().toISOString(),
@@ -188,6 +202,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
   ipcMain.handle('agent:delete', async (_event, { id }) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     // Safety: verify the agent is not a preset
     const { data: existing, error: fetchError } = await supabase
@@ -228,6 +245,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
   // agent:start — Tell the Gateway to start (activate) an agent session.
   // ---------------------------------------------------------------------------
   ipcMain.handle('agent:start', async (_event, { id }) => {
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     if (!gatewayBridge.isConnected) {
       return { error: 'Gateway not connected' };
     }
@@ -242,6 +262,7 @@ module.exports = function registerAgentHandlers(mainWindow) {
           agent_id: id,
           event_type: 'agent_started',
           payload: { agentId: id },
+          user_id: auth.userId,
           created_at: new Date().toISOString(),
         });
       }
@@ -256,6 +277,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
   // agent:stop — Tell the Gateway to stop an agent session gracefully.
   // ---------------------------------------------------------------------------
   ipcMain.handle('agent:stop', async (_event, { id }) => {
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     if (!gatewayBridge.isConnected) {
       return { error: 'Gateway not connected' };
     }
@@ -269,6 +293,7 @@ module.exports = function registerAgentHandlers(mainWindow) {
           agent_id: id,
           event_type: 'agent_stopped',
           payload: { agentId: id },
+          user_id: auth.userId,
           created_at: new Date().toISOString(),
         });
       }
@@ -283,6 +308,9 @@ module.exports = function registerAgentHandlers(mainWindow) {
   // agent:restart — Stop then start an agent via the Gateway.
   // ---------------------------------------------------------------------------
   ipcMain.handle('agent:restart', async (_event, { id }) => {
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     if (!gatewayBridge.isConnected) {
       return { error: 'Gateway not connected' };
     }
@@ -301,6 +329,7 @@ module.exports = function registerAgentHandlers(mainWindow) {
           agent_id: id,
           event_type: 'agent_restarted',
           payload: { agentId: id },
+          user_id: auth.userId,
           created_at: new Date().toISOString(),
         });
       }

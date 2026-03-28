@@ -4,6 +4,7 @@ const { ipcMain } = require('electron');
 const fs = require('fs').promises;
 const path = require('path');
 const { getSupabase } = require('../services/supabase');
+const requireAuth = require('./requireAuth');
 const { getOpenClawBase, getWorkspacePath } = require('../services/pathUtils');
 
 /**
@@ -175,6 +176,9 @@ module.exports = function registerSkillHandlers(mainWindow) {
     if (!skillId) return { error: 'skillId is required' };
     if (!content) return { error: 'content (SKILL.md) is required' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const targetDir =
       scope === 'agent' && agentName
         ? path.join(getAgentSkillsDir(agentName), skillId)
@@ -217,6 +221,9 @@ module.exports = function registerSkillHandlers(mainWindow) {
   ipcMain.handle('skill:uninstall', async (_event, { skillId, scope, agentName }) => {
     if (!skillId) return { error: 'skillId is required' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const targetDir =
       scope === 'agent' && agentName
         ? path.join(getAgentSkillsDir(agentName), skillId)
@@ -244,6 +251,9 @@ module.exports = function registerSkillHandlers(mainWindow) {
   ipcMain.handle('skill:enable', async (_event, { skillId, scope, agentName }) => {
     if (!skillId) return { error: 'skillId is required' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
 
@@ -265,6 +275,9 @@ module.exports = function registerSkillHandlers(mainWindow) {
   // ---------------------------------------------------------------------------
   ipcMain.handle('skill:disable', async (_event, { skillId, scope, agentName }) => {
     if (!skillId) return { error: 'skillId is required' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };

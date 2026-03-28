@@ -11,6 +11,7 @@ const SignUp = lazy(() => import('./screens/auth/SignUp'));
 const ForgotPassword = lazy(() => import('./screens/auth/ForgotPassword'));
 const ResetPassword = lazy(() => import('./screens/auth/ResetPassword'));
 const AuthCallback = lazy(() => import('./screens/auth/AuthCallback'));
+const EmailVerified = lazy(() => import('./screens/auth/EmailVerified'));
 
 // Protected routes
 
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="/auth/forgot-password" element={<ForgotPassword />} />
             <Route path="/auth/reset-password" element={<ResetPassword />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/auth/email-verified" element={<EmailVerified />} />
             
             {/* Protected App Routes (Require Authentication) */}
             <Route element={<RequireAuth />}>

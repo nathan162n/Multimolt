@@ -27,6 +27,16 @@ export const useAuthStore = create(
     
     setError: (error) => set({ error, loading: false }),
     
+    // Sign-out clear: keeps initialized: true to avoid re-init flicker
+    clearSession: () => set({
+      session: null,
+      user: null,
+      initialized: true,
+      error: null,
+      loading: false
+    }),
+
+    // Full reset (e.g. reconfigure Supabase): re-triggers init
     clear: () => set({
       session: null,
       user: null,

@@ -63,8 +63,8 @@ export function readMemory(agentId) {
  * @param {string} agentId
  * @returns {Promise<Object>} Daily logs keyed by date string.
  */
-export function readDailyLogs(agentId) {
-  return invoke('file:read-daily-logs', { agentName: agentId });
+export function readDailyLogs(agentId, date) {
+  return invoke('file:read-daily-logs', { agentName: agentId, date });
 }
 
 /**

@@ -29,20 +29,33 @@ export default function SignUp() {
     e.preventDefault();
     clearError();
     setLoadingProvider('email');
-    
+
     // Attempt sign up
-    const { error: signUpError } = await signUp(email, password);
+    const { data, error: signUpError } = await signUp(email, password);
     setLoadingProvider(null);
-    
+
     if (!signUpError) {
-      setSuccess(true);
+      // If Supabase returned a session (email confirmation disabled), redirect to dashboard
+      if (data?.session) {
+        navigate('/', { replace: true });
+      } else {
+        // Email confirmation required — show "check your inbox" message
+        setSuccess(true);
+      }
     }
   };
 
   const handleOAuth = async (provider) => {
     clearError();
     setLoadingProvider(provider);
-    await signInWithOAuth(provider);
+    const { error: oauthError } = await signInWithOAuth(provider);
+    if (oauthError) {
+      setLoadingProvider(null);
+    } else {
+      // In Electron, the window stays visible while the browser opens externally.
+      // Reset the loading state after a brief delay so the button isn't stuck spinning.
+      setTimeout(() => setLoadingProvider(null), 2000);
+    }
   };
 
   return (
@@ -114,7 +127,7 @@ export default function SignUp() {
                   required
                 />
                 <p className="text-[10px] text-[var(--color-text-tertiary)]">
-                  Must be at least 8 characters. We recommend a mix of numbers, lettrs, and symbols.
+                  Must be at least 8 characters. We recommend a mix of numbers, letters, and symbols.
                 </p>
               </div>
 

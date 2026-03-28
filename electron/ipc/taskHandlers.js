@@ -4,6 +4,7 @@ const { ipcMain } = require('electron');
 const { v4: uuidv4 } = require('uuid');
 const gatewayBridge = require('./gatewayBridge');
 const { getSupabase } = require('../services/supabase');
+const requireAuth = require('./requireAuth');
 
 /**
  * Register all task:* IPC handlers.
@@ -17,6 +18,9 @@ module.exports = function registerTaskHandlers(mainWindow) {
   // the goal to the Gateway which will decompose it through the Orchestrator.
   // ---------------------------------------------------------------------------
   ipcMain.handle('task:submit-goal', async (_event, { goal, metadata }) => {
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const taskId = uuidv4();
     const now = new Date().toISOString();
 
@@ -27,6 +31,7 @@ module.exports = function registerTaskHandlers(mainWindow) {
         id: taskId,
         goal,
         status: 'pending',
+        user_id: auth.userId,
         created_at: now,
       });
 
@@ -38,6 +43,7 @@ module.exports = function registerTaskHandlers(mainWindow) {
       const { error: auditError } = await supabase.from('audit_log').insert({
         event_type: 'goal_submitted',
         task_id: taskId,
+        user_id: auth.userId,
         payload: {
           goal,
           metadata: metadata || {},
@@ -108,6 +114,9 @@ module.exports = function registerTaskHandlers(mainWindow) {
   ipcMain.handle('task:cancel', async (_event, { taskId }) => {
     if (!taskId) return { error: 'taskId is required' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const supabase = getSupabase();
 
     // Send cancel request to gateway
@@ -137,6 +146,7 @@ module.exports = function registerTaskHandlers(mainWindow) {
       await supabase.from('audit_log').insert({
         event_type: 'task_cancelled',
         task_id: taskId,
+        user_id: auth.userId,
         payload: { reason: 'Cancelled by user' },
         created_at: now,
       });
@@ -160,6 +170,9 @@ module.exports = function registerTaskHandlers(mainWindow) {
   ipcMain.handle('task:list', async (_event, { limit, status } = {}) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     let query = supabase
       .from('tasks')
@@ -185,6 +198,9 @@ module.exports = function registerTaskHandlers(mainWindow) {
   // ---------------------------------------------------------------------------
   ipcMain.handle('task:get', async (_event, { taskId }) => {
     if (!taskId) return { error: 'taskId is required' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     // Try gateway first for real-time state
     if (gatewayBridge.isConnected) {

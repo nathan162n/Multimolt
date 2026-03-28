@@ -119,6 +119,7 @@ const ALLOWED_INVOKE = [
   // Auth — session sync (renderer -> main process)
   'auth:sync-session',
   'auth:clear-main-session',
+  'auth:open-external',
 
   // App lifecycle — post-auth initialization
   'app:init-workspaces',

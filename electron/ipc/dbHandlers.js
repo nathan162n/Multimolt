@@ -1,26 +1,8 @@
 'use strict';
 
 const { ipcMain } = require('electron');
-const { getSupabase, getUserId } = require('../services/supabase');
-
-/**
- * Register all db:* IPC handlers.
- * Each handler retrieves the Supabase client via getSupabase().
- * If the client is null (not yet configured), the handler returns
- * an error object so the renderer can prompt the user through onboarding.
- *
- * getUserId() returns the authenticated user's ID (set via auth:sync-session).
- * All insert/upsert operations automatically inject user_id for RLS compliance.
- */
-/**
- * Returns the authenticated userId or null. Write handlers should call
- * requireAuth() and bail early if the user is not authenticated.
- */
-function requireAuth() {
-  const userId = getUserId();
-  if (!userId) return { error: 'Not authenticated', userId: null };
-  return { error: null, userId };
-}
+const { getSupabase } = require('../services/supabase');
+const requireAuth = require('./requireAuth');
 
 module.exports = function registerDbHandlers() {
   // ---------------------------------------------------------------------------
@@ -30,6 +12,9 @@ module.exports = function registerDbHandlers() {
   ipcMain.handle('db:agents:list', async () => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     const { data, error } = await supabase
       .from('agents')
@@ -44,6 +29,9 @@ module.exports = function registerDbHandlers() {
   ipcMain.handle('db:agents:get', async (_event, { id }) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     const { data, error } = await supabase
       .from('agents')
@@ -82,6 +70,9 @@ module.exports = function registerDbHandlers() {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     // Safety: never delete preset agents
     const { data: existing, error: fetchError } = await supabase
       .from('agents')
@@ -111,6 +102,9 @@ module.exports = function registerDbHandlers() {
   ipcMain.handle('db:tasks:list', async (_event, { limit, offset } = {}) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     let query = supabase
       .from('tasks')
@@ -157,6 +151,9 @@ module.exports = function registerDbHandlers() {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const { data, error } = await supabase
       .from('tasks')
       .update(updates)
@@ -198,6 +195,9 @@ module.exports = function registerDbHandlers() {
   ipcMain.handle('db:audit:list', async (_event, { limit, agentId, actionType } = {}) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     let query = supabase
       .from('audit_log')
@@ -252,6 +252,9 @@ module.exports = function registerDbHandlers() {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
 
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const { data, error } = await supabase
       .from('checkpoints')
       .update({
@@ -273,6 +276,9 @@ module.exports = function registerDbHandlers() {
   ipcMain.handle('db:skills:list', async (_event, { agentId } = {}) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     let query = supabase
       .from('skills')
@@ -313,6 +319,9 @@ module.exports = function registerDbHandlers() {
   ipcMain.handle('db:skills:delete', async (_event, { id }) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
 
     const { error } = await supabase
       .from('skills')

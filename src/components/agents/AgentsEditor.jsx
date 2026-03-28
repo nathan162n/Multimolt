@@ -13,13 +13,21 @@ export default function AgentsEditor({ agentId }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    readAgentsMd(agentId).then((text) => {
-      if (!cancelled) {
-        setContent(text || '');
-        setLoading(false);
-        setDirty(false);
-      }
-    });
+    readAgentsMd(agentId)
+      .then((result) => {
+        if (!cancelled) {
+          setContent(result?.data?.content || '');
+          setLoading(false);
+          setDirty(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[AgentsEditor] Failed to load AGENTS.md:', err);
+        if (!cancelled) {
+          setContent('');
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
   }, [agentId]);
 
@@ -30,9 +38,14 @@ export default function AgentsEditor({ agentId }) {
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    await writeAgentsMd(agentId, content);
-    setSaving(false);
-    setDirty(false);
+    try {
+      await writeAgentsMd(agentId, content);
+      setDirty(false);
+    } catch (err) {
+      console.error('[AgentsEditor] Failed to save AGENTS.md:', err);
+    } finally {
+      setSaving(false);
+    }
   }, [agentId, content]);
 
   if (loading) {

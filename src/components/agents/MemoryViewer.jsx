@@ -18,20 +18,39 @@ export default function MemoryViewer({ agentId }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    readMemory(agentId).then((text) => {
-      if (!cancelled) {
-        setMemory(text || '');
-        setLoading(false);
-      }
-    });
+    readMemory(agentId)
+      .then((result) => {
+        if (!cancelled) {
+          setMemory(result?.data?.content || '');
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[MemoryViewer] Failed to load MEMORY.md:', err);
+        if (!cancelled) {
+          setMemory('');
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
   }, [agentId]);
 
   const loadDailyLog = useCallback(async (date) => {
     setLoading(true);
-    const text = await readDailyLog(agentId, date);
-    setDailyLog(text || '');
-    setLoading(false);
+    try {
+      const result = await readDailyLog(agentId, date);
+      const logs = result?.data?.logs;
+      if (Array.isArray(logs) && logs.length > 0) {
+        setDailyLog(logs[0].content || '');
+      } else {
+        setDailyLog('');
+      }
+    } catch (err) {
+      console.error('[MemoryViewer] Failed to load daily log:', err);
+      setDailyLog('');
+    } finally {
+      setLoading(false);
+    }
   }, [agentId]);
 
   useEffect(() => {

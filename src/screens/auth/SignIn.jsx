@@ -50,8 +50,14 @@ export default function SignIn() {
   const handleOAuth = async (provider) => {
     clearError();
     setLoadingProvider(provider);
-    await signInWithOAuth(provider);
-    // OAuth redirects away, so no need to clear loading state unless it fails immediately
+    const { error: oauthError } = await signInWithOAuth(provider);
+    if (oauthError) {
+      setLoadingProvider(null);
+    } else {
+      // In Electron, the window stays visible while the browser opens externally.
+      // Reset the loading state after a brief delay so the button isn't stuck spinning.
+      setTimeout(() => setLoadingProvider(null), 2000);
+    }
   };
 
   return (

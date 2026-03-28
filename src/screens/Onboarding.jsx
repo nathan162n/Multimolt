@@ -91,6 +91,31 @@ function StepIndicator({ current, total }) {
 /* ------------------------------------------------------------------ */
 
 function WelcomeStep() {
+  const [presetAgents, setPresetAgents] = useState([]);
+
+  useEffect(() => {
+    // Attempt to load preset agents from DB. This may fail during first-run
+    // onboarding if Supabase is not yet configured — that's expected.
+    let cancelled = false;
+    (async () => {
+      try {
+        const { listAgents } = await import('../services/db');
+        const result = await listAgents();
+        const agents = result?.data;
+        if (!cancelled && Array.isArray(agents) && agents.length > 0) {
+          setPresetAgents(
+            agents
+              .filter((a) => a.is_preset)
+              .map((a) => ({ label: a.name, desc: a.role }))
+          );
+        }
+      } catch {
+        // DB not available yet — ignore silently during onboarding
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="flex flex-col items-center text-center py-6">
       <motion.div
@@ -107,42 +132,34 @@ function WelcomeStep() {
       </h2>
 
       <p className="font-[family-name:var(--font-body)] text-base font-light text-[var(--color-text-secondary)] max-w-md leading-relaxed mb-8">
-        A mission control panel for orchestrating 9 autonomous AI agents working
+        A mission control panel for orchestrating autonomous AI agents working
         together as a coordinated team. Set up your environment in a few steps.
       </p>
 
-      <div className="grid grid-cols-3 gap-3 max-w-sm w-full">
-        {[
-          { label: 'Orchestrator', desc: 'CEO & Router' },
-          { label: 'PM', desc: 'Planning' },
-          { label: 'Coder', desc: 'Engineering' },
-          { label: 'QA', desc: 'Testing' },
-          { label: 'CyberSec', desc: 'Security' },
-          { label: 'Designer', desc: 'UI/UX' },
-          { label: 'Marketing', desc: 'Growth' },
-          { label: 'Research', desc: 'Intelligence' },
-          { label: 'Patrol', desc: 'Watchdog' },
-        ].map((agent, idx) => (
-          <motion.div
-            key={agent.label}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{
-              delay: 0.15 + idx * 0.06,
-              duration: 0.3,
-              ease: [0.25, 0.46, 0.45, 0.94],
-            }}
-            className="flex flex-col items-center gap-1 py-3 px-2 bg-[var(--color-bg-surface)] border border-[var(--color-border-light)] rounded-lg"
-          >
-            <span className="font-[family-name:var(--font-body)] text-xs font-medium text-[var(--color-text-primary)]">
-              {agent.label}
-            </span>
-            <span className="font-[family-name:var(--font-body)] text-[10px] text-[var(--color-text-tertiary)]">
-              {agent.desc}
-            </span>
-          </motion.div>
-        ))}
-      </div>
+      {presetAgents.length > 0 && (
+        <div className="grid grid-cols-3 gap-3 max-w-sm w-full">
+          {presetAgents.map((agent, idx) => (
+            <motion.div
+              key={agent.label}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                delay: 0.15 + idx * 0.06,
+                duration: 0.3,
+                ease: [0.25, 0.46, 0.45, 0.94],
+              }}
+              className="flex flex-col items-center gap-1 py-3 px-2 bg-[var(--color-bg-surface)] border border-[var(--color-border-light)] rounded-lg"
+            >
+              <span className="font-[family-name:var(--font-body)] text-xs font-medium text-[var(--color-text-primary)]">
+                {agent.label}
+              </span>
+              <span className="font-[family-name:var(--font-body)] text-[10px] text-[var(--color-text-tertiary)]">
+                {agent.desc}
+              </span>
+            </motion.div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

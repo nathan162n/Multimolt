@@ -13,13 +13,21 @@ export default function SoulEditor({ agentId }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    readSoul(agentId).then((text) => {
-      if (!cancelled) {
-        setContent(text || '');
-        setLoading(false);
-        setDirty(false);
-      }
-    });
+    readSoul(agentId)
+      .then((result) => {
+        if (!cancelled) {
+          setContent(result?.data?.content || '');
+          setLoading(false);
+          setDirty(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[SoulEditor] Failed to load SOUL.md:', err);
+        if (!cancelled) {
+          setContent('');
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
   }, [agentId]);
 
@@ -30,9 +38,14 @@ export default function SoulEditor({ agentId }) {
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    await writeSoul(agentId, content);
-    setSaving(false);
-    setDirty(false);
+    try {
+      await writeSoul(agentId, content);
+      setDirty(false);
+    } catch (err) {
+      console.error('[SoulEditor] Failed to save SOUL.md:', err);
+    } finally {
+      setSaving(false);
+    }
   }, [agentId, content]);
 
   if (loading) {
