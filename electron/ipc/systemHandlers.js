@@ -27,7 +27,7 @@ async function getStore() {
         sandboxMode: 'all',
         auditLogging: true,
         promptInjectionProtection: 'balanced',
-        fontScale: 'medium',
+        font_scale: '100',
         openclawPath: '',
       },
     });

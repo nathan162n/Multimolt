@@ -1,9 +1,11 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { GatewayProvider } from './contexts/GatewayContext';
 import AppShell from './components/layout/AppShell';
 import CheckpointModal from './components/security/CheckpointModal';
 import RequireAuth from './components/auth/guards/RequireAuth';
+import { applyFontScaleFromSettings } from './lib/fontScale';
+import { getSettings } from './services/openclaw';
 
 // Auth routes
 const SignIn = lazy(() => import('./screens/auth/SignIn'));
@@ -43,6 +45,16 @@ function PageFallback() {
 }
 
 export default function App() {
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.hivemind) return;
+    getSettings()
+      .then((result) => {
+        const data = result?.data ?? result ?? {};
+        applyFontScaleFromSettings(data);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <HashRouter>
       <GatewayProvider>

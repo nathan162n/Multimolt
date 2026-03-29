@@ -42,6 +42,7 @@ import {
   deleteApiKey,
   connectGateway,
 } from '../services/openclaw';
+import { applyFontScaleFromSettings, getFontScaleSelectValue } from '../lib/fontScale';
 
 /* ------------------------------------------------------------------ */
 /*  Animation                                                          */
@@ -452,7 +453,7 @@ function AppearanceTab({ settings, onUpdate }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setFontScale(settings.font_scale || '100');
+    setFontScale(getFontScaleSelectValue(settings));
   }, [settings]);
 
   const handleFontScaleChange = async (val) => {
@@ -541,6 +542,9 @@ export default function Settings() {
       const merged = { ...settings, ...updates };
       setSettings(merged);
       await saveSettings(merged);
+      if (Object.prototype.hasOwnProperty.call(updates, 'font_scale')) {
+        applyFontScaleFromSettings(merged);
+      }
     },
     [settings]
   );

@@ -7,6 +7,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
+  /* Multiplier for type scale + root rem (Settings → Appearance). Default 1. */
+  --ui-font-scale: 1;
+
   /* === SURFACES === */
   --color-bg-base:        #FFFFFF;
   --color-bg-surface:     #F8F8F7;
@@ -79,16 +82,16 @@
   --font-body:    'DM Sans', system-ui, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* === TYPE SCALE === */
-  --text-2xs:  10px;
-  --text-xs:   11px;
-  --text-sm:   12px;
-  --text-base: 13px;
-  --text-md:   15px;
-  --text-lg:   18px;
-  --text-xl:   24px;
-  --text-2xl:  32px;
-  --text-3xl:  44px;
+  /* === TYPE SCALE === (scaled via --ui-font-scale from Settings) */
+  --text-2xs:  calc(10px * var(--ui-font-scale));
+  --text-xs:   calc(11px * var(--ui-font-scale));
+  --text-sm:   calc(12px * var(--ui-font-scale));
+  --text-base: calc(13px * var(--ui-font-scale));
+  --text-md:   calc(15px * var(--ui-font-scale));
+  --text-lg:   calc(18px * var(--ui-font-scale));
+  --text-xl:   calc(24px * var(--ui-font-scale));
+  --text-2xl:  calc(32px * var(--ui-font-scale));
+  --text-3xl:  calc(44px * var(--ui-font-scale));
 
   /* === ANIMATION — EASING === */
   --ease-smooth: cubic-bezier(0.25, 0.46, 0.45, 0.94);
