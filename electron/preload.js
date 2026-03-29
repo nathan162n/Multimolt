@@ -121,6 +121,7 @@ const ALLOWED_INVOKE = [
   'auth:sync-session',
   'auth:clear-main-session',
   'auth:open-external',
+  'auth:cancel-oauth-popup',
   'auth:open-oauth-popup',
 
   // App lifecycle — post-auth initialization

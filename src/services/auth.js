@@ -87,3 +87,10 @@ export function clearMainSession() {
 export function getSupabaseConfig() {
   return invoke('auth:get-supabase-config');
 }
+
+/**
+ * Close the in-app OAuth BrowserWindow (user dismissed from the auth screen).
+ */
+export function cancelOAuthPopup() {
+  return invoke('auth:cancel-oauth-popup');
+}

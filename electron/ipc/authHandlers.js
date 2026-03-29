@@ -1,9 +1,13 @@
 'use strict';
 
-const { ipcMain, shell, safeStorage, BrowserWindow } = require('electron');
+const path = require('path');
+const { ipcMain, shell, safeStorage, BrowserWindow, BrowserView } = require('electron');
 const { parseDeepLink } = require('../services/protocolHandler');
 const secureTokenStorage = require('../services/secureTokenStorage');
 const { setUserSession, clearUserSession } = require('../services/supabase');
+
+/** @type {Electron.BrowserWindow|null} */
+let activeOAuthPopup = null;
 
 /**
  * Register all auth:* IPC handlers.
@@ -201,7 +205,38 @@ module.exports = function registerAuthHandlers(mainWindow) {
   // OAUTH POPUP — open an in-app BrowserWindow for OAuth instead of the
   // system browser. Intercepts the hivemind-os:// redirect before the OS
   // handles it, extracts the PKCE code, and returns it to the renderer.
+  //
+  // modal:false so the user can return to the auth screen and dismiss via
+  // auth:cancel-oauth-popup (or the pop-up's own close control / Escape).
   // =========================================================================
+
+  ipcMain.handle('auth:cancel-oauth-popup', () => {
+    try {
+      const win = activeOAuthPopup;
+      if (win && !win.isDestroyed()) {
+        win.close();
+      }
+      return { data: { ok: true } };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+
+  // Close control on the OAuth window chrome (oauth-shell.html), not the HiveMind preload.
+  ipcMain.handle('oauth-shell:close', (event) => {
+    try {
+      if (!activeOAuthPopup || activeOAuthPopup.isDestroyed()) {
+        return { data: { ok: false } };
+      }
+      if (event.sender !== activeOAuthPopup.webContents) {
+        return { data: { ok: false } };
+      }
+      activeOAuthPopup.close();
+      return { data: { ok: true } };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
 
   ipcMain.handle('auth:open-oauth-popup', (_event, { url }) => {
     if (!url) return Promise.resolve({ error: 'url is required' });
@@ -220,13 +255,18 @@ module.exports = function registerAuthHandlers(mainWindow) {
       return Promise.resolve({ error: `Invalid URL: ${err.message}` });
     }
 
+    if (activeOAuthPopup && !activeOAuthPopup.isDestroyed()) {
+      activeOAuthPopup.close();
+    }
+
     return new Promise((resolve) => {
-      const popup = new BrowserWindow({
-        width: 480,
-        height: 700,
-        parent: mainWindow,
-        modal: true,
-        title: 'Sign in',
+      const TOOLBAR_HEIGHT = 44;
+      const shellPreload = path.join(__dirname, '..', 'oauthShellPreload.js');
+      const shellHtml = path.join(__dirname, '..', 'oauth-shell.html');
+
+      // Provider pages (GitHub, Google) fill the view; OS window chrome is often hidden
+      // or easy to miss. A fixed shell bar + BrowserView keeps a visible × at all times.
+      const oauthView = new BrowserView({
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
@@ -234,29 +274,91 @@ module.exports = function registerAuthHandlers(mainWindow) {
         },
       });
 
+      const popup = new BrowserWindow({
+        width: 520,
+        height: 760,
+        parent: mainWindow,
+        modal: false,
+        frame: false,
+        title: 'Sign in',
+        backgroundColor: '#f8f8f7',
+        show: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        webPreferences: {
+          preload: shellPreload,
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+        },
+      });
+
+      activeOAuthPopup = popup;
+
+      const clearPopupRef = () => {
+        if (activeOAuthPopup === popup) activeOAuthPopup = null;
+      };
+
+      const layoutView = () => {
+        if (popup.isDestroyed()) return;
+        const [w, h] = popup.getContentSize();
+        oauthView.setBounds({
+          x: 0,
+          y: TOOLBAR_HEIGHT,
+          width: w,
+          height: Math.max(0, h - TOOLBAR_HEIGHT),
+        });
+      };
+
+      popup.setBrowserView(oauthView);
+      layoutView();
+      popup.on('resize', layoutView);
+
       popup.setMenuBarVisibility(false);
-      popup.loadURL(url);
+
+      void (async () => {
+        try {
+          await popup.loadFile(shellHtml);
+        } catch (err) {
+          console.error('[authHandlers] OAuth shell failed to load:', err.message);
+        }
+        if (popup.isDestroyed()) return;
+        oauthView.webContents.loadURL(url);
+        popup.show();
+      })();
+
+      oauthView.webContents.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown' && input.key === 'Escape') {
+          event.preventDefault();
+          if (!popup.isDestroyed()) popup.close();
+        }
+      });
 
       let resolved = false;
 
       const finish = (deepLinkUrl) => {
         if (resolved) return;
         resolved = true;
+        clearPopupRef();
+        try {
+          if (!popup.isDestroyed()) popup.setBrowserView(null);
+        } catch (_) {
+          /* ignore */
+        }
         const parsed = parseDeepLink(deepLinkUrl);
         if (!popup.isDestroyed()) popup.destroy();
         resolve({ data: parsed || { params: {} } });
       };
 
-      // Intercept both navigation and HTTP-redirect events so we catch
-      // the hivemind-os:// redirect before the OS protocol handler fires.
-      popup.webContents.on('will-navigate', (event, navUrl) => {
+      oauthView.webContents.on('will-navigate', (event, navUrl) => {
         if (navUrl.startsWith('hivemind-os://')) {
           event.preventDefault();
           finish(navUrl);
         }
       });
 
-      popup.webContents.on('will-redirect', (event, navUrl) => {
+      oauthView.webContents.on('will-redirect', (event, navUrl) => {
         if (navUrl.startsWith('hivemind-os://')) {
           event.preventDefault();
           finish(navUrl);
@@ -264,6 +366,7 @@ module.exports = function registerAuthHandlers(mainWindow) {
       });
 
       popup.on('closed', () => {
+        clearPopupRef();
         if (!resolved) {
           resolved = true;
           resolve({ data: { cancelled: true, params: {} } });

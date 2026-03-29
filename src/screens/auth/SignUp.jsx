@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, UserPlus, Mail } from 'lucide-react';
 import { AuthLayout } from '../../components/auth/AuthLayout';
+import { OAuthPopupDismissBar } from '../../components/auth/OAuthPopupDismissBar';
 import { OAuthButtons } from '../../components/auth/OAuthButtons';
 import { PasswordInput } from '../../components/auth/PasswordInput';
 import { useAuth } from '../../hooks/useAuth';
@@ -57,6 +58,7 @@ export default function SignUp() {
 
   return (
     <AuthLayout>
+      <OAuthPopupDismissBar provider={loadingProvider} />
       <Card className="border-[var(--color-border-light)] shadow-card">
         <CardHeader className="space-y-1 pb-4">
           <CardTitle className="text-2xl font-[family-name:var(--font-display)] text-[var(--color-text-primary)]">
