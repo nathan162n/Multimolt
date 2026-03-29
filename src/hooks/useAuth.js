@@ -326,7 +326,8 @@ export function useAuth() {
 
       // Open the OAuth URL in the system browser via IPC
       if (data?.url) {
-        await window.hivemind.invoke('auth:open-external', { url: data.url });
+        const openResult = await window.hivemind.invoke('auth:open-external', { url: data.url });
+        if (openResult?.error) throw new Error(openResult.error);
       }
 
       return { data, error: null };

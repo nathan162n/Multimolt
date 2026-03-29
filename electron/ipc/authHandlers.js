@@ -142,7 +142,10 @@ module.exports = function registerAuthHandlers(mainWindow) {
     try {
       const parsed = new URL(url);
 
-      // Only allow Supabase auth URLs and well-known OAuth providers
+      // Only allow Supabase auth URLs and well-known OAuth providers.
+      // supabaseHost covers custom domains; the .supabase.co pattern covers
+      // cloud projects when SUPABASE_URL isn't available in process.env
+      // (e.g. credentials stored only in safeStorage after onboarding).
       const supabaseUrl = process.env.SUPABASE_URL || '';
       const supabaseHost = supabaseUrl ? new URL(supabaseUrl).host : null;
       const allowedHosts = [
@@ -151,7 +154,8 @@ module.exports = function registerAuthHandlers(mainWindow) {
         'github.com',
       ].filter(Boolean);
 
-      if (!allowedHosts.includes(parsed.host)) {
+      const isSupabaseCloud = parsed.hostname.endsWith('.supabase.co');
+      if (!isSupabaseCloud && !allowedHosts.includes(parsed.host)) {
         return { error: `Blocked: ${parsed.host} is not an allowed OAuth host` };
       }
 
