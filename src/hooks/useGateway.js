@@ -4,9 +4,10 @@ import { GatewayContext } from '../contexts/GatewayContext';
 /**
  * useGateway — convenience hook to consume the GatewayContext.
  *
- * Returns { status, error } where:
+ * Returns { status, error, reconnectGateway } where:
  *   status: 'connected' | 'disconnected' | 'error'
  *   error:  string | null
+ *   reconnectGateway: async () => void — IPC connect + wait for handshake
  */
 export function useGateway() {
   const context = useContext(GatewayContext);

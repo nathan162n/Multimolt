@@ -70,8 +70,19 @@ export function getGatewayStatus() {
   return invoke('gateway:status');
 }
 
-export function connectGateway(url) {
-  return invoke('gateway:connect', { url });
+export async function connectGateway(url) {
+  const payload =
+    url != null && String(url).trim()
+      ? { url: String(url).trim() }
+      : {};
+  const result = await invoke('gateway:connect', payload);
+  if (!result || result.ok === false) {
+    throw new Error(
+      result?.error ||
+        'Could not connect to the gateway. Start OpenClaw or run npm run mock-gateway.'
+    );
+  }
+  return result;
 }
 
 export function disconnectGateway() {

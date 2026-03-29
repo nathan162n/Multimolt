@@ -26,7 +26,12 @@ describe('GatewayContext', () => {
 
     // Mock window.hivemind.on to capture callbacks and return cleanup functions
     window.hivemind = {
-      invoke: vi.fn().mockResolvedValue(undefined),
+      invoke: vi.fn((channel) => {
+        if (channel === 'gateway:status') {
+          return Promise.resolve({ connected: false });
+        }
+        return Promise.resolve(undefined);
+      }),
       on: vi.fn((eventName, handler) => {
         registeredCallbacks[eventName] = handler;
         const cleanupFn = vi.fn();

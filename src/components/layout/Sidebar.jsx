@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -71,10 +72,21 @@ function SidebarLink({ to, label, icon: Icon }) {
 }
 
 export default function Sidebar() {
-  const { status } = useGateway();
+  const { status, error, reconnectGateway } = useGateway();
+  const [reconnectBusy, setReconnectBusy] = useState(false);
   const { user, signOut, loading } = useAuth();
   const navigate = useNavigate();
   const connected = status === 'connected';
+
+  const handleReconnectGateway = async () => {
+    if (connected || reconnectBusy) return;
+    setReconnectBusy(true);
+    try {
+      await reconnectGateway();
+    } finally {
+      setReconnectBusy(false);
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -106,29 +118,42 @@ export default function Sidebar() {
 
         <Separator className="bg-[var(--color-border-light)]" />
 
-        {/* Gateway connection status */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 px-4 py-2">
-              <span
-                className={cn(
-                  'block h-2 w-2 shrink-0 rounded-full',
-                  connected
-                    ? 'bg-[var(--color-status-success-dot)]'
-                    : 'bg-[var(--color-status-error-dot)]'
-                )}
-              />
-              <span className="font-[var(--font-body)] text-[length:var(--text-xs)] text-[var(--color-text-tertiary)]">
-                {connected ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            {connected
+        {/* Plain button (no Radix Tooltip) — TooltipTrigger can swallow clicks in Electron */}
+        <button
+          type="button"
+          onClick={() => void handleReconnectGateway()}
+          disabled={connected || reconnectBusy}
+          title={
+            connected
               ? 'OpenClaw Gateway connected'
-              : 'OpenClaw Gateway disconnected'}
-          </TooltipContent>
-        </Tooltip>
+              : error ||
+                'Disconnected. Click to reconnect. Start OpenClaw or run: npm run mock-gateway'
+          }
+          className={cn(
+            'flex w-full items-center gap-2 px-4 py-2 text-left transition-colors rounded-md',
+            !connected &&
+              !reconnectBusy &&
+              'cursor-pointer hover:bg-[var(--color-bg-elevated)]',
+            (reconnectBusy || (!connected && status === 'error')) &&
+              'opacity-90'
+          )}
+        >
+          <span
+            className={cn(
+              'block h-2 w-2 shrink-0 rounded-full',
+              connected
+                ? 'bg-[var(--color-status-success-dot)]'
+                : 'bg-[var(--color-status-error-dot)]'
+            )}
+          />
+          <span className="font-[var(--font-body)] text-[length:var(--text-xs)] text-[var(--color-text-tertiary)]">
+            {connected
+              ? 'Connected'
+              : reconnectBusy
+                ? 'Connecting…'
+                : 'Disconnected — click to reconnect'}
+          </span>
+        </button>
 
         <Separator className="bg-[var(--color-border-light)]" />
 

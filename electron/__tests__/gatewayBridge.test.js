@@ -95,6 +95,10 @@ describe('GatewayBridge', () => {
         clearTimeout(bridge._challengeTimer);
         bridge._challengeTimer = null;
       }
+      while (bridge._handshakeWaiters?.length) {
+        const w = bridge._handshakeWaiters.shift();
+        clearTimeout(w.timer);
+      }
       bridge._stopTick();
     }
     delete require_.cache[wsPath];
@@ -173,6 +177,45 @@ describe('GatewayBridge', () => {
       'gateway:connected',
       expect.objectContaining({ protocol: 3 })
     );
+  });
+
+  it('waitUntilHandshake resolves after v3 hello-ok', async () => {
+    bridge.connect('ws://localhost:18789');
+    const ws = bridge.ws;
+    ws._emit('open');
+
+    const waitP = bridge.waitUntilHandshake(5000);
+
+    ws._emit('message', JSON.stringify({
+      type: 'event',
+      event: 'connect.challenge',
+      payload: { nonce: 'n1' },
+    }));
+
+    const connectFrame = JSON.parse(ws.send.mock.calls[0][0]);
+    ws._emit('message', JSON.stringify({
+      type: 'res',
+      id: connectFrame.id,
+      ok: true,
+      payload: {
+        type: 'hello-ok',
+        protocol: 3,
+        policy: { tickIntervalMs: 15000 },
+      },
+    }));
+
+    await expect(waitP).resolves.toBeUndefined();
+  });
+
+  it('waitUntilHandshake rejects when handshake times out', async () => {
+    bridge.connect('ws://localhost:18789');
+    const ws = bridge.ws;
+    ws._emit('open');
+
+    const waitP = bridge.waitUntilHandshake(800);
+    vi.advanceTimersByTime(801);
+
+    await expect(waitP).rejects.toThrow(/timed out/);
   });
 
   // ===========================================================================
@@ -344,6 +387,23 @@ describe('GatewayBridge', () => {
 
     vi.advanceTimersByTime(1000);
     expect(MockWebSocket._instances.length).toBeGreaterThan(1);
+  });
+
+  it('replaces prior reconnect timer when scheduling again (no orphan timers)', () => {
+    bridge.shouldReconnect = true;
+    bridge._url = 'ws://localhost:18789';
+    bridge.reconnectDelay = 1000;
+
+    bridge._scheduleReconnect();
+    bridge._scheduleReconnect();
+
+    // First timer was cleared; nothing should run at the first delay
+    vi.advanceTimersByTime(1000);
+    expect(MockWebSocket._instances.length).toBe(0);
+
+    // Second timer used updated backoff (2000ms from first _scheduleReconnect)
+    vi.advanceTimersByTime(1000);
+    expect(MockWebSocket._instances.length).toBe(1);
   });
 
   it('stops reconnecting after disconnect()', () => {

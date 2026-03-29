@@ -40,6 +40,7 @@ import {
   saveApiKey,
   getApiKey,
   deleteApiKey,
+  connectGateway,
 } from '../services/openclaw';
 
 /* ------------------------------------------------------------------ */
@@ -180,15 +181,19 @@ function GeneralTab({ settings, onUpdate }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setGatewayUrl(settings.gateway_url || 'ws://127.0.0.1:18789');
-    setAutoStart(settings.gateway_auto_start ?? true);
+    setGatewayUrl(
+      settings.gateway_url || settings.gatewayUrl || 'ws://127.0.0.1:18789'
+    );
+    setAutoStart(settings.gateway_auto_start ?? settings.autoStartGateway ?? true);
   }, [settings]);
 
   const handleSaveUrl = async () => {
     setSaving(true);
     setError('');
     try {
-      await onUpdate({ gateway_url: gatewayUrl.trim() });
+      const trimmed = gatewayUrl.trim();
+      await onUpdate({ gateway_url: trimmed, gatewayUrl: trimmed });
+      await connectGateway(trimmed);
       flashSaved();
     } catch (err) {
       setError(err?.message || 'Failed to save');
@@ -200,7 +205,7 @@ function GeneralTab({ settings, onUpdate }) {
   const handleAutoStartChange = async (checked) => {
     setAutoStart(checked);
     try {
-      await onUpdate({ gateway_auto_start: checked });
+      await onUpdate({ gateway_auto_start: checked, autoStartGateway: checked });
     } catch {
       setAutoStart(!checked);
     }

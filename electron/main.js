@@ -22,6 +22,39 @@ if (!gotTheLock) {
 let mainWindow = null;
 const isDev = !app.isPackaged;
 
+/**
+ * Use IPv4 loopback when the URL says "localhost" so we reach servers bound to
+ * 127.0.0.1 (e.g. mock gateway). On many systems "localhost" resolves to ::1 first.
+ */
+function normalizeGatewayLoopbackUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  return url
+    .replace(/^ws:\/\/localhost\b/i, 'ws://127.0.0.1')
+    .replace(/^wss:\/\/localhost\b/i, 'wss://127.0.0.1');
+}
+
+/**
+ * WebSocket URL for the OpenClaw Gateway: env wins, then electron-store
+ * (gateway_url from Settings UI or legacy gatewayUrl), then default.
+ */
+async function resolveGatewayUrl() {
+  const envUrl = process.env.OPENCLAW_GATEWAY_URL;
+  if (envUrl && String(envUrl).trim()) {
+    return normalizeGatewayLoopbackUrl(String(envUrl).trim());
+  }
+  try {
+    const { default: Store } = await import('electron-store');
+    const s = new Store({ name: 'hivemind-settings' });
+    const stored = s.get('gateway_url') || s.get('gatewayUrl');
+    if (typeof stored === 'string' && stored.trim()) {
+      return normalizeGatewayLoopbackUrl(stored.trim());
+    }
+  } catch (err) {
+    console.warn('[HiveMind] resolveGatewayUrl:', err.message);
+  }
+  return 'ws://127.0.0.1:18789';
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -127,8 +160,7 @@ app.whenReady().then(async () => {
   // Initialize gateway bridge with the main window reference
   gatewayBridge.init(win);
 
-  // Attempt initial connection to OpenClaw Gateway
-  const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
+  const gatewayUrl = await resolveGatewayUrl();
   gatewayBridge.connect(gatewayUrl);
 
   // Register all IPC handlers — each module receives the mainWindow reference
@@ -191,10 +223,21 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('gateway:connect', async (_event, { url } = {}) => {
-    const targetUrl = url || process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
+    const explicit = url && String(url).trim();
+    const raw = explicit || (await resolveGatewayUrl());
+    const targetUrl = normalizeGatewayLoopbackUrl(raw);
     gatewayBridge.disconnect();
     gatewayBridge.shouldReconnect = true;
     gatewayBridge.connect(targetUrl);
+    try {
+      await gatewayBridge.waitUntilHandshake(15000);
+    } catch (err) {
+      return {
+        ok: false,
+        error: err?.message || 'Gateway handshake failed',
+        url: targetUrl,
+      };
+    }
     return { ok: true, url: targetUrl };
   });
 
@@ -242,8 +285,7 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     const win = createWindow();
     gatewayBridge.init(win);
-    const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
-    gatewayBridge.connect(gatewayUrl);
+    resolveGatewayUrl().then((u) => gatewayBridge.connect(u));
   }
 });
 

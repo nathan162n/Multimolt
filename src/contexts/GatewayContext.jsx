@@ -1,6 +1,7 @@
 import React, { createContext, useEffect, useState, useCallback, useRef } from 'react';
 import useAgentStore from '../store/agentStore';
 import useTaskStore from '../store/taskStore';
+import { getGatewayStatus, connectGateway } from '../services/openclaw';
 
 /**
  * GatewayContext — React context that subscribes to all gateway and agent
@@ -18,6 +19,7 @@ import useTaskStore from '../store/taskStore';
 export const GatewayContext = createContext({
   status: 'disconnected',
   error: null,
+  reconnectGateway: async () => {},
 });
 
 export function GatewayProvider({ children }) {
@@ -29,6 +31,37 @@ export function GatewayProvider({ children }) {
     if (typeof fn === 'function') {
       cleanupsRef.current.push(fn);
     }
+  }, []);
+
+  const reconnectGateway = useCallback(async () => {
+    if (!window.hivemind?.invoke) return;
+    try {
+      setError(null);
+      await connectGateway();
+      setStatus('connected');
+      setError(null);
+    } catch (e) {
+      setStatus('error');
+      setError(e?.message || 'Reconnect failed');
+    }
+  }, []);
+
+  // Sync UI if the main process connected before listeners were registered
+  useEffect(() => {
+    if (!window.hivemind?.invoke) return undefined;
+    let cancelled = false;
+    getGatewayStatus()
+      .then((st) => {
+        if (cancelled) return;
+        if (st?.connected) {
+          setStatus('connected');
+          setError(null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -252,7 +285,7 @@ export function GatewayProvider({ children }) {
   }, [addCleanup]);
 
   return (
-    <GatewayContext.Provider value={{ status, error }}>
+    <GatewayContext.Provider value={{ status, error, reconnectGateway }}>
       {children}
     </GatewayContext.Provider>
   );

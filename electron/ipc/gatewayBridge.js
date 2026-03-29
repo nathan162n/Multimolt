@@ -36,6 +36,8 @@ class GatewayBridge {
     this._tickIntervalMs = 15000;
     /** @type {boolean} Whether the connect handshake has completed */
     this._handshakeComplete = false;
+    /** @type {Array<{ resolve: Function, reject: Function, timer: NodeJS.Timeout }>} IPC waiters for handshake */
+    this._handshakeWaiters = [];
   }
 
   /**
@@ -44,6 +46,47 @@ class GatewayBridge {
    */
   init(mainWindow) {
     this.mainWindow = mainWindow;
+  }
+
+  /**
+   * Wait until the connect handshake completes (v3 hello-ok or v1.0 synthetic).
+   * Used by IPC so the renderer only resolves after the gateway is usable.
+   * @param {number} [timeoutMs=15000]
+   * @returns {Promise<void>}
+   */
+  waitUntilHandshake(timeoutMs = 15000) {
+    if (this._handshakeComplete && this.isConnected) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const entry = {
+        resolve: () => resolve(),
+        reject: (err) => reject(err),
+        timer: setTimeout(() => {
+          const i = this._handshakeWaiters.indexOf(entry);
+          if (i >= 0) this._handshakeWaiters.splice(i, 1);
+          reject(new Error(`Gateway handshake timed out after ${timeoutMs}ms`));
+        }, timeoutMs),
+      };
+      this._handshakeWaiters.push(entry);
+    });
+  }
+
+  _resolveHandshakeWaiters() {
+    while (this._handshakeWaiters.length) {
+      const w = this._handshakeWaiters.shift();
+      clearTimeout(w.timer);
+      w.resolve();
+    }
+  }
+
+  _rejectHandshakeWaiters(message) {
+    const err = message instanceof Error ? message : new Error(message);
+    while (this._handshakeWaiters.length) {
+      const w = this._handshakeWaiters.shift();
+      clearTimeout(w.timer);
+      w.reject(err);
+    }
   }
 
   /**
@@ -136,6 +179,7 @@ class GatewayBridge {
 
     this.ws.on('close', (code, reason) => {
       const wasConnected = this.isConnected;
+      const handshakeDone = this._handshakeComplete;
       this.isConnected = false;
       this._handshakeComplete = false;
 
@@ -151,6 +195,14 @@ class GatewayBridge {
         pending.reject(new Error('Gateway connection closed'));
       }
       this.pendingRequests.clear();
+
+      if (this._handshakeWaiters.length > 0 && !handshakeDone) {
+        this._rejectHandshakeWaiters(
+          reason
+            ? `Gateway closed: ${reason.toString()}`
+            : `Gateway closed (code ${code})`
+        );
+      }
 
       this.forwardToRenderer('gateway:disconnected', {
         code,
@@ -236,6 +288,14 @@ class GatewayBridge {
     this._handshakeComplete = true;
     this.isConnected = true;
 
+    // Handshake succeeded — cancel any pending auto-reconnect. A stale timer must
+    // not call connect() later; that would abort this working socket.
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    this.reconnectDelay = 1000;
+
     // Start tick keepalive if the gateway specifies an interval
     const tickMs = payload?.policy?.tickIntervalMs || payload?.tick?.interval;
     if (tickMs && typeof tickMs === 'number') {
@@ -246,6 +306,7 @@ class GatewayBridge {
       url: this._url,
       protocol: this._protocolVersion,
     });
+    this._resolveHandshakeWaiters();
   }
 
   /**
@@ -284,6 +345,13 @@ class GatewayBridge {
   _scheduleReconnect() {
     if (!this.shouldReconnect || !this._url) {
       return;
+    }
+    // Always clear the previous timer. Without this, rapid close/error sequences
+    // leave orphaned timeouts; when they fire they call connect() and tear down a
+    // healthy socket (connected briefly, then disconnected again).
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
     }
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
@@ -461,6 +529,7 @@ class GatewayBridge {
    */
   disconnect() {
     this.shouldReconnect = false;
+    this._rejectHandshakeWaiters('Gateway disconnected by client');
 
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);

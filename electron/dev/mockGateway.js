@@ -277,10 +277,31 @@ function timestamp() {
 // WEBSOCKET SERVER
 // =============================================================================
 
-const wss = new WebSocket.Server({ port: PORT });
+const wss = new WebSocket.Server({ host: '127.0.0.1', port: PORT });
 
-console.log(`[MockGateway] OpenClaw Mock Gateway started on ws://127.0.0.1:${PORT}`);
-console.log('[MockGateway] Waiting for HiveMind OS to connect...');
+wss.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[MockGateway] Port ${PORT} is already in use (EADDRINUSE).`);
+    console.error(
+      '  Only one process can listen on this port. Common cases:\n' +
+        '  • You already have mock-gateway or OpenClaw running in another terminal.\n' +
+        '  • Stop the other process, or pick another port.\n' +
+        `  • macOS/Linux — see what is listening:  lsof -iTCP:${PORT} -sTCP:LISTEN\n` +
+        '  • Use another port:  MOCK_GATEWAY_PORT=18790 npm run mock-gateway\n' +
+        '    Then set HiveMind Settings → Gateway URL to ws://127.0.0.1:18790 (same port).'
+    );
+  } else {
+    console.error('[MockGateway] WebSocket server error:', err.message);
+  }
+  process.exit(1);
+});
+
+wss.on('listening', () => {
+  const addr = wss.address();
+  const port = typeof addr === 'object' && addr ? addr.port : PORT;
+  console.log(`[MockGateway] OpenClaw Mock Gateway listening on ws://127.0.0.1:${port}`);
+  console.log('[MockGateway] Waiting for HiveMind OS to connect...');
+});
 
 wss.on('connection', (ws) => {
   console.log('[MockGateway] Client connected');
