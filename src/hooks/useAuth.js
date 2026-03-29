@@ -313,24 +313,55 @@ export function useAuth() {
     setError(null);
     try {
       const supabase = await getAuthClient();
+
+      // Generate the OAuth URL with PKCE. skipBrowserRedirect prevents the
+      // Supabase client from navigating the current window — we open the URL
+      // in a controlled in-app popup instead.
       const { data, error: sbError } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: 'hivemind-os://auth/callback',
-          // In Electron, we MUST skip browser redirect and open externally.
-          // The will-navigate handler blocks navigation to external URLs.
           skipBrowserRedirect: true,
         },
       });
       if (sbError) throw sbError;
 
-      // Open the OAuth URL in the system browser via IPC
-      if (data?.url) {
-        const openResult = await window.hivemind.invoke('auth:open-external', { url: data.url });
-        if (openResult?.error) throw new Error(openResult.error);
+      if (!data?.url) throw new Error('OAuth URL not returned by Supabase.');
+
+      // Open the OAuth flow in an in-app BrowserWindow popup. The popup
+      // intercepts the hivemind-os:// redirect and returns the parsed params
+      // (including the PKCE authorization code) directly to us.
+      const result = await window.hivemind.invoke('auth:open-oauth-popup', { url: data.url });
+      if (result?.error) throw new Error(result.error);
+
+      // User closed the popup without completing auth
+      if (result?.data?.cancelled) return { data: null, error: null };
+
+      const { params } = result.data || {};
+
+      // Surface any error the OAuth provider sent back
+      if (params?.error) {
+        throw new Error(params.error_description || params.error);
       }
 
-      return { data, error: null };
+      // Exchange the PKCE authorization code for a session
+      if (params?.code) {
+        const { data: sessionData, error: exchangeError } =
+          await supabase.auth.exchangeCodeForSession(params.code);
+        if (exchangeError) throw exchangeError;
+
+        // Set session immediately so navigation works right away
+        if (sessionData?.session) {
+          useAuthStore.getState().setSession(sessionData.session);
+          syncSessionToMain(sessionData.session.access_token).catch((err) =>
+            console.error('[Auth] Failed to sync OAuth session to main:', err)
+          );
+        }
+
+        return { data: sessionData, error: null };
+      }
+
+      return { data: null, error: null };
     } catch (err) {
       const friendlyError = mapAuthError(err);
       setError(friendlyError);

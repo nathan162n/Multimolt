@@ -1,6 +1,7 @@
 'use strict';
 
-const { ipcMain, shell, safeStorage } = require('electron');
+const { ipcMain, shell, safeStorage, BrowserWindow } = require('electron');
+const { parseDeepLink } = require('../services/protocolHandler');
 const secureTokenStorage = require('../services/secureTokenStorage');
 const { setUserSession, clearUserSession } = require('../services/supabase');
 
@@ -194,5 +195,80 @@ module.exports = function registerAuthHandlers(mainWindow) {
     } catch (err) {
       return { error: err.message };
     }
+  });
+
+  // =========================================================================
+  // OAUTH POPUP — open an in-app BrowserWindow for OAuth instead of the
+  // system browser. Intercepts the hivemind-os:// redirect before the OS
+  // handles it, extracts the PKCE code, and returns it to the renderer.
+  // =========================================================================
+
+  ipcMain.handle('auth:open-oauth-popup', (_event, { url }) => {
+    if (!url) return Promise.resolve({ error: 'url is required' });
+
+    // Validate the URL is an allowed OAuth origin
+    try {
+      const parsed = new URL(url);
+      const supabaseUrl = process.env.SUPABASE_URL || '';
+      const supabaseHost = supabaseUrl ? new URL(supabaseUrl).host : null;
+      const allowedHosts = [supabaseHost, 'accounts.google.com', 'github.com'].filter(Boolean);
+      const isSupabaseCloud = parsed.hostname.endsWith('.supabase.co');
+      if (!isSupabaseCloud && !allowedHosts.includes(parsed.host)) {
+        return Promise.resolve({ error: `Blocked: ${parsed.host} is not an allowed OAuth host` });
+      }
+    } catch (err) {
+      return Promise.resolve({ error: `Invalid URL: ${err.message}` });
+    }
+
+    return new Promise((resolve) => {
+      const popup = new BrowserWindow({
+        width: 480,
+        height: 700,
+        parent: mainWindow,
+        modal: true,
+        title: 'Sign in',
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+        },
+      });
+
+      popup.setMenuBarVisibility(false);
+      popup.loadURL(url);
+
+      let resolved = false;
+
+      const finish = (deepLinkUrl) => {
+        if (resolved) return;
+        resolved = true;
+        const parsed = parseDeepLink(deepLinkUrl);
+        if (!popup.isDestroyed()) popup.destroy();
+        resolve({ data: parsed || { params: {} } });
+      };
+
+      // Intercept both navigation and HTTP-redirect events so we catch
+      // the hivemind-os:// redirect before the OS protocol handler fires.
+      popup.webContents.on('will-navigate', (event, navUrl) => {
+        if (navUrl.startsWith('hivemind-os://')) {
+          event.preventDefault();
+          finish(navUrl);
+        }
+      });
+
+      popup.webContents.on('will-redirect', (event, navUrl) => {
+        if (navUrl.startsWith('hivemind-os://')) {
+          event.preventDefault();
+          finish(navUrl);
+        }
+      });
+
+      popup.on('closed', () => {
+        if (!resolved) {
+          resolved = true;
+          resolve({ data: { cancelled: true, params: {} } });
+        }
+      });
+    });
   });
 };
