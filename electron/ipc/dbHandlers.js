@@ -186,8 +186,19 @@ module.exports = function registerDbHandlers() {
       return { error: 'Only failed tasks can be deleted' };
     }
 
-    const { error } = await supabase.from('tasks').delete().eq('id', id);
+    const { data: deletedRows, error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
     if (error) return { error: error.message };
+    if (!deletedRows || deletedRows.length === 0) {
+      return {
+        error:
+          'Task could not be deleted. Only failed tasks can be removed, and the row must belong to your account.',
+      };
+    }
     return { data: { deleted: true, id } };
   });
 

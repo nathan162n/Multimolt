@@ -84,6 +84,8 @@ function TaskCard({ task, index }) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
   const fetchTasks = useTaskStore((s) => s.fetchTasks);
+  const removeTask = useTaskStore((s) => s.removeTask);
+  const updateTask = useTaskStore((s) => s.updateTask);
 
   const created = task.createdAt || task.created_at;
   const completed = task.completedAt || task.completed_at;
@@ -103,6 +105,10 @@ function TaskCard({ task, index }) {
         setActionError(typeof result.error === 'string' ? result.error : 'Could not update task');
         return;
       }
+      updateTask(task.id, {
+        status: 'cancelled',
+        completedAt: new Date().toISOString(),
+      });
       await fetchTasks();
     } catch (err) {
       setActionError(err?.message || 'Request failed');
@@ -120,6 +126,7 @@ function TaskCard({ task, index }) {
         setActionError(typeof result.error === 'string' ? result.error : 'Could not delete task');
         return;
       }
+      removeTask(task.id);
       await fetchTasks();
     } catch (err) {
       setActionError(err?.message || 'Request failed');
@@ -261,12 +268,15 @@ export default function Tasks() {
     fetchTasks();
   }, [fetchTasks]);
 
-  const sortedTasks = useMemo(() => {
-    return [...tasks].sort((a, b) => {
-      const aTime = new Date(a.createdAt || a.created_at || 0).getTime();
-      const bTime = new Date(b.createdAt || b.created_at || 0).getTime();
-      return bTime - aTime;
-    });
+  /** Cancelled/stopped tasks stay in DB for audit but are hidden from this list. */
+  const visibleTasks = useMemo(() => {
+    return [...tasks]
+      .filter((t) => t.status !== 'cancelled')
+      .sort((a, b) => {
+        const aTime = new Date(a.createdAt || a.created_at || 0).getTime();
+        const bTime = new Date(b.createdAt || b.created_at || 0).getTime();
+        return bTime - aTime;
+      });
   }, [tasks]);
 
   return (
@@ -286,12 +296,12 @@ export default function Tasks() {
           </h1>
         </div>
         <p className="text-sm text-muted-foreground ml-9">
-          {tasks.length} task{tasks.length !== 1 ? 's' : ''} total
+          {visibleTasks.length} task{visibleTasks.length !== 1 ? 's' : ''} shown
         </p>
       </header>
 
       <ScrollArea className="flex-1 min-h-0">
-        {sortedTasks.length === 0 ? (
+        {visibleTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 px-4">
             <div className="rounded-full bg-muted p-4 mb-4">
               <ClipboardList className="h-8 w-8 text-muted-foreground" />
@@ -306,7 +316,7 @@ export default function Tasks() {
         ) : (
           <div className="pr-4">
             <AnimatePresence mode="popLayout">
-              {sortedTasks.map((task, index) => (
+              {visibleTasks.map((task, index) => (
                 <TaskCard key={task.id} task={task} index={index} />
               ))}
             </AnimatePresence>

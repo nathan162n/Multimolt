@@ -63,7 +63,6 @@ module.exports = function registerTaskHandlers(mainWindow) {
         await supabase.from('tasks').update({
           status: 'failed',
           result: 'Gateway not connected',
-          completed_at: new Date().toISOString(),
         }).eq('id', taskId);
       }
       return { error: 'Gateway not connected', taskId };
@@ -100,7 +99,6 @@ module.exports = function registerTaskHandlers(mainWindow) {
         await supabase.from('tasks').update({
           status: 'failed',
           result: err.message,
-          completed_at: new Date().toISOString(),
         }).eq('id', taskId);
       }
 
@@ -112,69 +110,75 @@ module.exports = function registerTaskHandlers(mainWindow) {
   // task:cancel — Cancel a running task via the Gateway and update Supabase.
   // ---------------------------------------------------------------------------
   ipcMain.handle('task:cancel', async (_event, { taskId }) => {
-    if (!taskId) return { error: 'taskId is required' };
+    const id =
+      typeof taskId === 'string' ? taskId.trim() : String(taskId ?? '').trim();
+    if (!id) return { error: 'taskId is required' };
 
     const auth = requireAuth();
     if (auth.error) return { error: auth.error };
 
     const supabase = getSupabase();
+    if (!supabase) return { error: 'Supabase not configured' };
 
-    if (supabase) {
-      const { data: row, error: fetchErr } = await supabase
-        .from('tasks')
-        .select('status')
-        .eq('id', taskId)
-        .maybeSingle();
-      if (fetchErr) return { error: fetchErr.message };
-      if (!row) return { error: 'Task not found' };
-      if (!['pending', 'running'].includes(row.status)) {
-        return { error: 'Only pending or running tasks can be cancelled or stopped' };
-      }
+    const { data: row, error: fetchErr } = await supabase
+      .from('tasks')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle();
+    if (fetchErr) return { error: fetchErr.message };
+    if (!row) return { error: 'Task not found' };
+    if (!['pending', 'running'].includes(row.status)) {
+      return { error: 'Only pending or running tasks can be cancelled or stopped' };
     }
 
-    // Send cancel request to gateway
-    if (gatewayBridge.isConnected) {
-      try {
-        await gatewayBridge.request('task.cancel', { taskId });
-      } catch (err) {
-        console.error('[taskHandlers] Gateway cancel failed:', err.message);
-        // Continue anyway — we still update the local record
-      }
+    // Persist cancellation in the DB first so the UI can refresh immediately.
+    // Awaiting gateway.task.cancel before this blocked the IPC for up to the
+    // request timeout; pending tasks especially may get a slow/no response from
+    // the gateway even though the row should be cleared right away.
+    const now = new Date().toISOString();
+
+    // Omit completed_at: some databases lack this column (schema drift); status
+    // alone is enough for cancel. cancelledAt is still sent to the renderer below.
+    const { data: updatedRows, error: taskError } = await supabase
+      .from('tasks')
+      .update({ status: 'cancelled' })
+      .eq('id', id)
+      .select('id');
+
+    if (taskError) return { error: taskError.message };
+    if (!updatedRows || updatedRows.length === 0) {
+      return {
+        error:
+          'Task could not be updated. It may belong to another account or was already completed.',
+      };
     }
 
-    // Update the task in Supabase
-    if (supabase) {
-      const now = new Date().toISOString();
-
-      const { error: taskError } = await supabase.from('tasks').update({
-        status: 'cancelled',
-        completed_at: now,
-      }).eq('id', taskId);
-
-      if (taskError) {
-        console.error('[taskHandlers] Failed to update cancelled task:', taskError.message);
-      }
-
-      // Audit log
-      await supabase.from('audit_log').insert({
-        event_type: 'task_cancelled',
-        task_id: taskId,
-        user_id: auth.userId,
-        payload: { reason: 'Cancelled by user' },
-        created_at: now,
-      });
+    const { error: auditError } = await supabase.from('audit_log').insert({
+      event_type: 'task_cancelled',
+      task_id: id,
+      user_id: auth.userId,
+      payload: { reason: 'Cancelled by user' },
+      created_at: now,
+    });
+    if (auditError) {
+      console.error('[taskHandlers] audit_log insert failed:', auditError.message);
     }
 
-    // Notify the renderer (do not use task:failed — that implies an error state)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('task:cancelled', {
-        taskId,
+        taskId: id,
         reason: 'Cancelled by user',
-        cancelledAt: new Date().toISOString(),
+        cancelledAt: now,
       });
     }
 
-    return { data: { cancelled: true, taskId } };
+    if (gatewayBridge.isConnected) {
+      gatewayBridge.request('task.cancel', { taskId: id }).catch((err) => {
+        console.error('[taskHandlers] Gateway cancel failed:', err.message);
+      });
+    }
+
+    return { data: { cancelled: true, taskId: id } };
   });
 
   // ---------------------------------------------------------------------------

@@ -246,12 +246,20 @@ describe('dbHandlers', () => {
 
   it('db:tasks:delete removes failed task', async () => {
     mockSupabase._pushResult({ data: { status: 'failed' }, error: null });
-    mockSupabase._pushResult({ data: null, error: null });
+    mockSupabase._pushResult({ data: [{ id: 't1' }], error: null });
 
     const result = await handlers['db:tasks:delete'](event, { id: 't1' });
     expect(result.data).toEqual({ deleted: true, id: 't1' });
     expect(mockSupabase.delete).toHaveBeenCalled();
     expect(mockSupabase.eq).toHaveBeenCalledWith('id', 't1');
+  });
+
+  it('db:tasks:delete fails when delete affects no rows', async () => {
+    mockSupabase._pushResult({ data: { status: 'failed' }, error: null });
+    mockSupabase._pushResult({ data: [], error: null });
+
+    const result = await handlers['db:tasks:delete'](event, { id: 't1' });
+    expect(result.error).toMatch(/could not be deleted/i);
   });
 
   // ==========================================================================

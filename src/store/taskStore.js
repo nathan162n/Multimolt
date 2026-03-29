@@ -83,6 +83,12 @@ const useTaskStore = create(
       }));
     },
 
+    removeTask: (taskId) => {
+      set((state) => ({
+        tasks: state.tasks.filter((t) => t.id !== taskId),
+      }));
+    },
+
     /**
      * Fetch all tasks from the database.
      */
@@ -93,23 +99,23 @@ const useTaskStore = create(
           console.error('[TaskStore] fetchTasks DB error:', result.error);
           return;
         }
-        const taskList = result?.data;
-        if (Array.isArray(taskList)) {
-          set({
-            tasks: taskList.map((t) => ({
-              id: t.id,
-              goal: t.goal || '',
-              status: t.status || 'pending',
-              agentId: t.agentId || null,
-              createdAt: t.createdAt || t.created_at || Date.now(),
-              updatedAt: t.updatedAt || t.updated_at || Date.now(),
-              completedAt: t.completedAt || t.completed_at || null,
-              progress: t.progress || 0,
-              result: t.result || null,
-              error: t.error || null,
-            })),
-          });
-        }
+        const raw = result?.data;
+        const taskList = Array.isArray(raw) ? raw : [];
+        set({
+          tasks: taskList.map((t) => ({
+            id: t.id,
+            goal: t.goal || '',
+            status: t.status || 'pending',
+            agentId: t.agentId || null,
+            assigned_agents: t.assigned_agents,
+            createdAt: t.createdAt || t.created_at || Date.now(),
+            updatedAt: t.updatedAt || t.updated_at || Date.now(),
+            completedAt: t.completedAt || t.completed_at || null,
+            progress: t.progress || 0,
+            result: t.result || null,
+            error: t.error || null,
+          })),
+        });
       } catch (err) {
         console.error('[TaskStore] fetchTasks failed:', err);
       }

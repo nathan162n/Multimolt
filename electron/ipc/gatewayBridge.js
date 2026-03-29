@@ -455,7 +455,6 @@ class GatewayBridge {
       await supabase.from('tasks').update({
         status,
         result: result || null,
-        completed_at: now,
       }).eq('id', taskId);
 
       // Append audit log entry
