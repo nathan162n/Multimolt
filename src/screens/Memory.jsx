@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { sortAgentsByPresetOrder } from '@/lib/agentDisplayOrder';
 import { cn } from '@/lib/utils';
 
 const pageVariants = {
@@ -35,7 +36,10 @@ export default function Memory() {
   const agents = useAgentStore((s) => s.agents);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
 
-  const agentList = useMemo(() => Object.values(agents), [agents]);
+  const agentList = useMemo(
+    () => sortAgentsByPresetOrder(Object.values(agents)),
+    [agents]
+  );
 
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [memoryContent, setMemoryContent] = useState('');

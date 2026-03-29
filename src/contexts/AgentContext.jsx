@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import { sortAgentsByPresetOrder } from '@/lib/agentDisplayOrder';
 import useAgentStore from '../store/agentStore';
 
 /**
@@ -33,7 +34,7 @@ export function AgentProvider({ children }) {
 
   // Derived values, memoized to avoid unnecessary re-renders
   const value = useMemo(() => {
-    const agentList = Object.values(agents);
+    const agentList = sortAgentsByPresetOrder(Object.values(agents));
     const runningCount = agentList.filter((a) => a.status === 'running').length;
     const totalCount = agentList.length;
 

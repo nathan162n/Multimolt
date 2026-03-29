@@ -12,6 +12,7 @@ import {
   Shield,
   ChevronRight,
 } from 'lucide-react';
+import { sortAgentsByPresetOrder } from '@/lib/agentDisplayOrder';
 import { cn } from '@/lib/utils';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -546,7 +547,10 @@ export default function Agents() {
 
   const [searchQuery, setSearchQuery] = useState('');
 
-  const agentList = useMemo(() => Object.values(agents), [agents]);
+  const agentList = useMemo(
+    () => sortAgentsByPresetOrder(Object.values(agents)),
+    [agents]
+  );
 
   const filteredAgents = useMemo(() => {
     if (!searchQuery.trim()) return agentList;

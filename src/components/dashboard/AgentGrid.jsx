@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { sortAgentsByPresetOrder } from '@/lib/agentDisplayOrder';
 import useAgentStore from '../../store/agentStore';
 import AgentCard from './AgentCard';
 import AgentCardSkeleton from './AgentCardSkeleton';
@@ -29,7 +30,7 @@ export default function AgentGrid() {
   const agents = useAgentStore((s) => s.agents);
   const isLoading = useAgentStore((s) => s.isLoading);
 
-  const agentList = Object.values(agents);
+  const agentList = sortAgentsByPresetOrder(Object.values(agents));
 
   if (isLoading) {
     return (

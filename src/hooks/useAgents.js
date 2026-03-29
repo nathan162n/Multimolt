@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { sortAgentsByPresetOrder } from '@/lib/agentDisplayOrder';
 import useAgentStore from '../store/agentStore';
 
 /**
@@ -18,7 +19,7 @@ export function useAgents() {
   const stopAll = useAgentStore((s) => s.stopAll);
 
   const derived = useMemo(() => {
-    const agentList = Object.values(agents);
+    const agentList = sortAgentsByPresetOrder(Object.values(agents));
     const runningCount = agentList.filter((a) => a.status === 'running').length;
     const idleCount = agentList.filter((a) => a.status === 'idle').length;
     const errorCount = agentList.filter((a) => a.status === 'error').length;
