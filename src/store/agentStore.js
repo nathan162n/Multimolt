@@ -97,6 +97,45 @@ const useAgentStore = create(
     },
 
     /**
+     * When the active dashboard task ends (cancelled or completed), clear run flags
+     * and return any running/paused agents to idle in local state.
+     */
+    endActiveTaskSession: (taskId) => {
+      if (get().activeTaskId !== taskId) return;
+      set((state) => {
+        const updated = {};
+        for (const [id, agent] of Object.entries(state.agents)) {
+          updated[id] = {
+            ...agent,
+            status: ['running', 'paused'].includes(agent.status) ? 'idle' : agent.status,
+            currentAction: null,
+          };
+        }
+        return {
+          agents: updated,
+          activeGoal: null,
+          activeTaskId: null,
+          isRunning: false,
+          isStopping: false,
+        };
+      });
+    },
+
+    /**
+     * Clear dashboard run flags if this task was the active one (e.g. task failed).
+     * Does not change agent rows — failure handler may set a specific agent to error.
+     */
+    clearDashboardRunFlagsIfActiveTask: (taskId) => {
+      if (get().activeTaskId !== taskId) return;
+      set({
+        activeGoal: null,
+        activeTaskId: null,
+        isRunning: false,
+        isStopping: false,
+      });
+    },
+
+    /**
      * Stop all running agents and cancel the active task.
      */
     stopAll: async () => {

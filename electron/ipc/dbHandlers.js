@@ -165,6 +165,32 @@ module.exports = function registerDbHandlers() {
     return { data };
   });
 
+  ipcMain.handle('db:tasks:delete', async (_event, { id }) => {
+    if (!id) return { error: 'id is required' };
+
+    const supabase = getSupabase();
+    if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
+    const { data: row, error: fetchErr } = await supabase
+      .from('tasks')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr) return { error: fetchErr.message };
+    if (!row) return { error: 'Task not found' };
+    if (row.status !== 'failed') {
+      return { error: 'Only failed tasks can be deleted' };
+    }
+
+    const { error } = await supabase.from('tasks').delete().eq('id', id);
+    if (error) return { error: error.message };
+    return { data: { deleted: true, id } };
+  });
+
   // ---------------------------------------------------------------------------
   // AUDIT LOG — append-only, NEVER update or delete
   // ---------------------------------------------------------------------------

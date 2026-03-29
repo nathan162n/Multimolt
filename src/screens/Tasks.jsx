@@ -1,7 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ClipboardList, Clock, CheckCircle2, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import useTaskStore from '../store/taskStore';
+import { deleteTask as deleteTaskDb } from '../services/db';
+import { cancelTask } from '../services/openclaw';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -79,11 +81,52 @@ function formatElapsed(createdAt, completedAt) {
 }
 
 function TaskCard({ task, index }) {
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const fetchTasks = useTaskStore((s) => s.fetchTasks);
+
   const created = task.createdAt || task.created_at;
   const completed = task.completedAt || task.completed_at;
   const assignedAgents = task.assigned_agents || task.assignedAgents || [];
   const config = statusConfig[task.status] || statusConfig.pending;
   const StatusIcon = config.icon;
+
+  const canStopOrCancel = task.status === 'pending' || task.status === 'running';
+  const canDeleteFailed = task.status === 'failed';
+
+  const handleCancelOrStop = async () => {
+    setActionError('');
+    setBusy(true);
+    try {
+      const result = await cancelTask({ taskId: task.id });
+      if (result?.error) {
+        setActionError(typeof result.error === 'string' ? result.error : 'Could not update task');
+        return;
+      }
+      await fetchTasks();
+    } catch (err) {
+      setActionError(err?.message || 'Request failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteFailed = async () => {
+    setActionError('');
+    setBusy(true);
+    try {
+      const result = await deleteTaskDb(task.id);
+      if (result?.error) {
+        setActionError(typeof result.error === 'string' ? result.error : 'Could not delete task');
+        return;
+      }
+      await fetchTasks();
+    } catch (err) {
+      setActionError(err?.message || 'Request failed');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <motion.div
@@ -143,17 +186,66 @@ function TaskCard({ task, index }) {
 
           <Separator className="my-3" />
 
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground min-w-0">
               <span className="font-mono">{formatTimestamp(created)}</span>
               <span className="flex items-center gap-1 font-mono">
-                <Clock className="h-3 w-3" />
+                <Clock className="h-3 w-3 shrink-0" />
                 {formatElapsed(created, completed)}
               </span>
+              <span className="font-mono text-[10px] opacity-60 truncate max-w-[200px]">
+                {task.id}
+              </span>
             </div>
-            <span className="font-mono text-[10px] opacity-60 truncate max-w-[180px]">
-              {task.id}
-            </span>
+            {(canStopOrCancel || canDeleteFailed) && (
+              <div className="flex flex-col items-end gap-1 shrink-0 self-end">
+                {canStopOrCancel && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void handleCancelOrStop()}
+                    className="font-[family-name:var(--font-body)] text-xs min-w-[5.5rem]"
+                  >
+                    {busy ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        <span className="sr-only">Working…</span>
+                      </>
+                    ) : task.status === 'pending' ? (
+                      'Cancel'
+                    ) : (
+                      'Stop'
+                    )}
+                  </Button>
+                )}
+                {canDeleteFailed && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void handleDeleteFailed()}
+                    className="font-[family-name:var(--font-body)] text-xs min-w-[5.5rem] border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    {busy ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        <span className="sr-only">Working…</span>
+                      </>
+                    ) : (
+                      'Delete'
+                    )}
+                  </Button>
+                )}
+                {actionError && (
+                  <p className="text-[10px] text-destructive text-right max-w-[220px] leading-tight">
+                    {actionError}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

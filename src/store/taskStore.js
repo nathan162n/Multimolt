@@ -103,6 +103,7 @@ const useTaskStore = create(
               agentId: t.agentId || null,
               createdAt: t.createdAt || t.created_at || Date.now(),
               updatedAt: t.updatedAt || t.updated_at || Date.now(),
+              completedAt: t.completedAt || t.completed_at || null,
               progress: t.progress || 0,
               result: t.result || null,
               error: t.error || null,

@@ -119,6 +119,19 @@ module.exports = function registerTaskHandlers(mainWindow) {
 
     const supabase = getSupabase();
 
+    if (supabase) {
+      const { data: row, error: fetchErr } = await supabase
+        .from('tasks')
+        .select('status')
+        .eq('id', taskId)
+        .maybeSingle();
+      if (fetchErr) return { error: fetchErr.message };
+      if (!row) return { error: 'Task not found' };
+      if (!['pending', 'running'].includes(row.status)) {
+        return { error: 'Only pending or running tasks can be cancelled or stopped' };
+      }
+    }
+
     // Send cancel request to gateway
     if (gatewayBridge.isConnected) {
       try {
@@ -152,9 +165,9 @@ module.exports = function registerTaskHandlers(mainWindow) {
       });
     }
 
-    // Notify the renderer
+    // Notify the renderer (do not use task:failed — that implies an error state)
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('task:failed', {
+      mainWindow.webContents.send('task:cancelled', {
         taskId,
         reason: 'Cancelled by user',
         cancelledAt: new Date().toISOString(),

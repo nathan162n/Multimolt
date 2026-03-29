@@ -19,7 +19,7 @@ function createChainableMock() {
   const chain = {};
   const methods = [
     'from', 'select', 'insert', 'update', 'upsert', 'delete',
-    'eq', 'order', 'limit', 'range', 'single',
+    'eq', 'order', 'limit', 'range', 'single', 'maybeSingle',
   ];
   for (const m of methods) {
     chain[m] = vi.fn(() => chain);
@@ -91,7 +91,7 @@ describe('dbHandlers', () => {
   // All channels: Supabase not configured
   // ==========================================================================
 
-  it('returns error from all 16 channels when Supabase not configured', async () => {
+  it('returns error from all db channels when Supabase not configured', async () => {
     getSupabaseFn.mockReturnValue(null);
 
     const channels = [
@@ -102,6 +102,7 @@ describe('dbHandlers', () => {
       ['db:tasks:list', {}],
       ['db:tasks:create', { task: { goal: 'test' } }],
       ['db:tasks:update', { id: 'id1', updates: {} }],
+      ['db:tasks:delete', { id: 'id1' }],
       ['db:audit:append', { entry: { event_type: 'test' } }],
       ['db:audit:list', {}],
       ['db:checkpoints:create', { checkpoint: { agent_id: 'coder' } }],
@@ -119,8 +120,8 @@ describe('dbHandlers', () => {
     }
   });
 
-  it('registers all 16 IPC channels', () => {
-    expect(Object.keys(handlers)).toHaveLength(16);
+  it('registers all db IPC channels', () => {
+    expect(Object.keys(handlers)).toHaveLength(17);
   });
 
   // ==========================================================================
@@ -232,6 +233,24 @@ describe('dbHandlers', () => {
     });
     expect(result.data).toBeDefined();
     expect(mockSupabase.update).toHaveBeenCalledWith({ status: 'completed', result: 'done' });
+    expect(mockSupabase.eq).toHaveBeenCalledWith('id', 't1');
+  });
+
+  it('db:tasks:delete rejects non-failed status', async () => {
+    mockSupabase._pushResult({ data: { status: 'completed' }, error: null });
+
+    const result = await handlers['db:tasks:delete'](event, { id: 't1' });
+    expect(result.error).toBe('Only failed tasks can be deleted');
+    expect(mockSupabase.delete).not.toHaveBeenCalled();
+  });
+
+  it('db:tasks:delete removes failed task', async () => {
+    mockSupabase._pushResult({ data: { status: 'failed' }, error: null });
+    mockSupabase._pushResult({ data: null, error: null });
+
+    const result = await handlers['db:tasks:delete'](event, { id: 't1' });
+    expect(result.data).toEqual({ deleted: true, id: 't1' });
+    expect(mockSupabase.delete).toHaveBeenCalled();
     expect(mockSupabase.eq).toHaveBeenCalledWith('id', 't1');
   });
 

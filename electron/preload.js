@@ -89,6 +89,7 @@ const ALLOWED_INVOKE = [
   'db:tasks:list',
   'db:tasks:create',
   'db:tasks:update',
+  'db:tasks:delete',
 
   // Database — audit
   'db:audit:append',
@@ -147,6 +148,7 @@ const ALLOWED_ON = [
   'task:progress',
   'task:completed',
   'task:failed',
+  'task:cancelled',
 
   // System
   'system:notification',

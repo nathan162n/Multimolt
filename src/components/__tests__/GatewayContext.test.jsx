@@ -63,6 +63,7 @@ describe('GatewayContext', () => {
       'task:started',
       'task:progress',
       'task:completed',
+      'task:cancelled',
       'task:failed',
     ];
 

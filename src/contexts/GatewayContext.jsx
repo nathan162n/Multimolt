@@ -10,7 +10,7 @@ import { getGatewayStatus, connectGateway } from '../services/openclaw';
  * Responsibilities:
  *   - Listen to gateway:event, gateway:connected, gateway:disconnected, gateway:error
  *   - Listen to security:checkpoint, agent:status-changed, agent:message-received
- *   - Listen to task:started, task:progress, task:completed, task:failed
+ *   - Listen to task:started, task:progress, task:completed, task:cancelled, task:failed
  *   - Update agentStore and taskStore in response to events
  *   - Provide { status, error } to consumers
  *   - Clean up all listeners on unmount
@@ -241,6 +241,7 @@ export function GatewayProvider({ children }) {
             result: data.result || null,
             progress: 100,
           });
+          useAgentStore.getState().endActiveTaskSession(data.taskId);
           useAgentStore.getState().updateAgentStatus(
             data.agentId,
             'idle',
@@ -255,20 +256,39 @@ export function GatewayProvider({ children }) {
       })
     );
 
+    // --- task:cancelled (user cancel / stop from UI or IPC) ---
+    addCleanup(
+      window.hivemind.on('task:cancelled', (data) => {
+        if (data?.taskId) {
+          useTaskStore.getState().updateTask(data.taskId, {
+            status: 'cancelled',
+            error: null,
+            completedAt: data.cancelledAt || Date.now(),
+          });
+          useAgentStore.getState().endActiveTaskSession(data.taskId);
+          useTaskStore.getState().addFeedMessage({
+            type: 'system',
+            content: `Task cancelled: ${data.taskId}`,
+          });
+        }
+      })
+    );
+
     // --- task:failed ---
     addCleanup(
       window.hivemind.on('task:failed', (data) => {
         if (data?.taskId) {
           useTaskStore.getState().updateTask(data.taskId, {
             status: 'failed',
-            error: data.error || 'Unknown error',
+            error: data.error || data.reason || 'Unknown error',
           });
+          useAgentStore.getState().clearDashboardRunFlagsIfActiveTask(data.taskId);
           if (data.agentId) {
             useAgentStore.getState().updateAgentStatus(data.agentId, 'error', null);
           }
           useTaskStore.getState().addFeedMessage({
             type: 'error',
-            content: `Task failed: ${data.error || data.taskId || 'Unknown'}`,
+            content: `Task failed: ${data.error || data.reason || data.taskId || 'Unknown'}`,
             agentId: data.agentId,
           });
         }

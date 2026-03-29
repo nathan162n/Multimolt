@@ -40,6 +40,10 @@ export function updateTask(taskId, updates) {
   return invoke('db:tasks:update', { id: taskId, updates });
 }
 
+export function deleteTask(taskId) {
+  return invoke('db:tasks:delete', { id: taskId });
+}
+
 // === AUDIT ===
 export function appendAudit(entry) {
   return invoke('db:audit:append', { entry });

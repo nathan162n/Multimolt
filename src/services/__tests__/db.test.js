@@ -6,6 +6,7 @@ import {
   deleteAgent,
   listTasks,
   createTask,
+  deleteTask,
   appendAudit,
   listAudit,
   getSetting,
@@ -72,6 +73,12 @@ describe('db service', () => {
 
     expect(window.hivemind.invoke).toHaveBeenCalledWith('db:tasks:create', { task });
     expect(result).toEqual(task);
+  });
+
+  it('deleteTask calls db:tasks:delete with { id }', async () => {
+    await deleteTask('task-uuid');
+
+    expect(window.hivemind.invoke).toHaveBeenCalledWith('db:tasks:delete', { id: 'task-uuid' });
   });
 
   it('appendAudit calls db:audit:append with { entry }', async () => {
