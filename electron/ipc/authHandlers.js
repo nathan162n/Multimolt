@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcMain, shell } = require('electron');
+const { ipcMain, shell, safeStorage } = require('electron');
 const secureTokenStorage = require('../services/secureTokenStorage');
 const { setUserSession, clearUserSession } = require('../services/supabase');
 
@@ -114,18 +114,48 @@ module.exports = function registerAuthHandlers(mainWindow) {
   // =========================================================================
 
   ipcMain.handle('auth:get-supabase-config', async () => {
-    const url = process.env.SUPABASE_URL;
-    const anonKey = process.env.SUPABASE_ANON_KEY;
-
-    if (!url || !anonKey) {
-      return {
-        error: 'Supabase is not configured. Complete onboarding first.',
-      };
+    // Primary path: environment variables (set via .env in dev, or by a previous
+    // reconfigure() call this session).
+    const envUrl = process.env.SUPABASE_URL;
+    const envKey = process.env.SUPABASE_ANON_KEY;
+    if (envUrl && envKey) {
+      return { data: { url: envUrl, anonKey: envKey } };
     }
 
-    return {
-      data: { url, anonKey },
-    };
+    // Fallback path: credentials saved via the onboarding UI.
+    // The onboarding stores the URL in electron-store ("hivemind-settings")
+    // and the anon key encrypted in safeStorage ("hivemind-keys").
+    try {
+      const { default: Store } = await import('electron-store');
+
+      const settingsStore = new Store({ name: 'hivemind-settings' });
+      const savedUrl = settingsStore.get('supabase_url');
+
+      if (!savedUrl) {
+        return { error: 'Supabase is not configured. Complete onboarding first.' };
+      }
+
+      if (!safeStorage.isEncryptionAvailable()) {
+        return { error: 'OS encryption is not available — cannot read Supabase credentials.' };
+      }
+
+      const keyStore = new Store({ name: 'hivemind-keys' });
+      const base64 = keyStore.get('apiKeys.supabase_anon');
+      if (!base64) {
+        return { error: 'Supabase anon key not found. Complete onboarding first.' };
+      }
+
+      const savedAnonKey = safeStorage.decryptString(Buffer.from(base64, 'base64'));
+
+      // Promote to process.env so that downstream handlers (auth:open-external
+      // host check, setUserSession, etc.) work without re-reading storage.
+      process.env.SUPABASE_URL = savedUrl;
+      process.env.SUPABASE_ANON_KEY = savedAnonKey;
+
+      return { data: { url: savedUrl, anonKey: savedAnonKey } };
+    } catch (err) {
+      return { error: `Failed to load Supabase config: ${err.message}` };
+    }
   });
 
   // =========================================================================
