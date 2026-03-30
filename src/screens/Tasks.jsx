@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ClipboardList, Clock, CheckCircle2, XCircle, Loader2, AlertCircle } from 'lucide-react';
+import {
+  ClipboardList,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  AlertCircle,
+  Trash2,
+} from 'lucide-react';
 import useTaskStore from '../store/taskStore';
 import { deleteTask as deleteTaskDb } from '../services/db';
 import { cancelTask } from '../services/openclaw';
@@ -94,7 +102,7 @@ function TaskCard({ task, index }) {
   const StatusIcon = config.icon;
 
   const canStopOrCancel = task.status === 'pending' || task.status === 'running';
-  const canDeleteFailed = task.status === 'failed';
+  const canRemoveFromHistory = task.status === 'failed' || task.status === 'completed';
 
   const handleCancelOrStop = async () => {
     setActionError('');
@@ -117,13 +125,13 @@ function TaskCard({ task, index }) {
     }
   };
 
-  const handleDeleteFailed = async () => {
+  const handleRemoveFromHistory = async () => {
     setActionError('');
     setBusy(true);
     try {
       const result = await deleteTaskDb(task.id);
       if (result?.error) {
-        setActionError(typeof result.error === 'string' ? result.error : 'Could not delete task');
+        setActionError(typeof result.error === 'string' ? result.error : 'Could not remove task');
         return;
       }
       removeTask(task.id);
@@ -204,7 +212,7 @@ function TaskCard({ task, index }) {
                 {task.id}
               </span>
             </div>
-            {(canStopOrCancel || canDeleteFailed) && (
+            {(canStopOrCancel || canRemoveFromHistory) && (
               <div className="flex flex-col items-end gap-1 shrink-0 self-end">
                 {canStopOrCancel && (
                   <Button
@@ -227,22 +235,21 @@ function TaskCard({ task, index }) {
                     )}
                   </Button>
                 )}
-                {canDeleteFailed && (
+                {canRemoveFromHistory && (
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
+                    size="icon"
                     disabled={busy}
-                    onClick={() => void handleDeleteFailed()}
-                    className="font-[family-name:var(--font-body)] text-xs min-w-[5.5rem] border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => void handleRemoveFromHistory()}
+                    title="Remove from list"
+                    aria-label="Remove task from list"
+                    className="h-8 w-8 shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                   >
                     {busy ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                        <span className="sr-only">Working…</span>
-                      </>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                     ) : (
-                      'Delete'
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
                     )}
                   </Button>
                 )}
@@ -281,7 +288,7 @@ export default function Tasks() {
     return () => clearInterval(id);
   }, [hasActiveTask]);
 
-  /** Cancelled/stopped tasks stay in DB for audit but are hidden from this list. */
+  /** Cancelled tasks are hidden; completed and failed stay until you remove them. */
   const visibleTasks = useMemo(() => {
     return [...tasks]
       .filter((t) => t.status !== 'cancelled')
@@ -323,7 +330,7 @@ export default function Tasks() {
               No tasks yet
             </h3>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Submit a goal from the Dashboard to create your first task. All task history will appear here.
+              Submit a goal from the Dashboard to create your first task. Completed tasks stay here until you remove them with the trash button.
             </p>
           </div>
         ) : (

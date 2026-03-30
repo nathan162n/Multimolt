@@ -446,24 +446,46 @@ class GatewayBridge {
     if (!taskId) return;
 
     try {
-      const { getSupabase } = require('../services/supabase');
+      const { getSupabase, getUserId } = require('../services/supabase');
       const supabase = getSupabase();
       if (!supabase) return;
 
       const now = new Date().toISOString();
+      const userId = getUserId();
 
-      await supabase.from('tasks').update({
+      const updates = {
         status,
         result: result || null,
-      }).eq('id', taskId);
+      };
+      if (status === 'completed' || status === 'failed') {
+        updates.completed_at = now;
+      }
 
-      // Append audit log entry
-      await supabase.from('audit_log').insert({
-        event_type: `task_${status}`,
-        task_id: taskId,
-        payload: { result: result || null },
-        created_at: now,
-      });
+      const { error: taskErr } = await supabase
+        .from('tasks')
+        .update(updates)
+        .eq('id', taskId);
+
+      if (taskErr) {
+        console.error(
+          '[GatewayBridge] Failed to sync task completion (tasks update):',
+          taskErr.message
+        );
+        return;
+      }
+
+      if (userId) {
+        const { error: auditErr } = await supabase.from('audit_log').insert({
+          event_type: `task_${status}`,
+          task_id: taskId,
+          user_id: userId,
+          payload: { result: result || null },
+          created_at: now,
+        });
+        if (auditErr) {
+          console.error('[GatewayBridge] audit_log insert failed:', auditErr.message);
+        }
+      }
     } catch (err) {
       console.error('[GatewayBridge] Failed to sync task completion to DB:', err.message);
     }

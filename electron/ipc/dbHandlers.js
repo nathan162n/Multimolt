@@ -3,6 +3,7 @@
 const { ipcMain } = require('electron');
 const { getSupabase } = require('../services/supabase');
 const requireAuth = require('./requireAuth');
+const gatewayBridge = require('./gatewayBridge');
 
 module.exports = function registerDbHandlers() {
   // ---------------------------------------------------------------------------
@@ -165,7 +166,10 @@ module.exports = function registerDbHandlers() {
     return { data };
   });
 
-  ipcMain.handle('db:tasks:delete', async (_event, { id }) => {
+  ipcMain.handle('db:tasks:delete', async (_event, payload = {}) => {
+    const rawId = payload?.id;
+    const id =
+      typeof rawId === 'string' ? rawId.trim() : String(rawId ?? '').trim();
     if (!id) return { error: 'id is required' };
 
     const supabase = getSupabase();
@@ -181,9 +185,28 @@ module.exports = function registerDbHandlers() {
       .maybeSingle();
 
     if (fetchErr) return { error: fetchErr.message };
-    if (!row) return { error: 'Task not found' };
-    if (row.status !== 'failed') {
-      return { error: 'Only failed tasks can be deleted' };
+    // No Supabase row (insert failed, RLS drift, or UI-only task from gateway) — still let the user clear the card.
+    if (!row) {
+      if (gatewayBridge.isConnected) {
+        gatewayBridge.request('task.cancel', { taskId: id }).catch((err) => {
+          console.error('[dbHandlers] task.cancel (no DB row) failed:', err.message);
+        });
+      }
+      return { data: { deleted: true, id, localOnly: true } };
+    }
+
+    const status = String(row.status || '').toLowerCase();
+    const removableTerminal = new Set(['failed', 'completed', 'cancelled']);
+    const active = new Set(['pending', 'running']);
+
+    if (active.has(status)) {
+      if (gatewayBridge.isConnected) {
+        gatewayBridge.request('task.cancel', { taskId: id }).catch((err) => {
+          console.error('[dbHandlers] task.cancel before delete failed:', err.message);
+        });
+      }
+    } else if (!removableTerminal.has(status)) {
+      return { error: 'This task cannot be removed from history.' };
     }
 
     const { data: deletedRows, error } = await supabase
@@ -196,7 +219,7 @@ module.exports = function registerDbHandlers() {
     if (!deletedRows || deletedRows.length === 0) {
       return {
         error:
-          'Task could not be deleted. Only failed tasks can be removed, and the row must belong to your account.',
+          'Task could not be deleted. It may belong to another account or RLS blocked the operation.',
       };
     }
     return { data: { deleted: true, id } };

@@ -236,12 +236,42 @@ describe('dbHandlers', () => {
     expect(mockSupabase.eq).toHaveBeenCalledWith('id', 't1');
   });
 
-  it('db:tasks:delete rejects non-failed status', async () => {
-    mockSupabase._pushResult({ data: { status: 'completed' }, error: null });
+  it('db:tasks:delete succeeds with no DB row (clears UI-only / ghost tasks)', async () => {
+    mockSupabase._pushResult({ data: null, error: null });
+
+    const result = await handlers['db:tasks:delete'](event, { id: 'ghost-id' });
+    expect(result.data).toEqual({
+      deleted: true,
+      id: 'ghost-id',
+      localOnly: true,
+    });
+    expect(mockSupabase.delete).not.toHaveBeenCalled();
+  });
+
+  it('db:tasks:delete rejects unknown status', async () => {
+    mockSupabase._pushResult({ data: { status: 'bogus' }, error: null });
 
     const result = await handlers['db:tasks:delete'](event, { id: 't1' });
-    expect(result.error).toBe('Only failed tasks can be deleted');
+    expect(result.error).toMatch(/cannot be removed/i);
     expect(mockSupabase.delete).not.toHaveBeenCalled();
+  });
+
+  it('db:tasks:delete removes pending task (asks gateway to cancel)', async () => {
+    mockSupabase._pushResult({ data: { status: 'pending' }, error: null });
+    mockSupabase._pushResult({ data: [{ id: 't1' }], error: null });
+
+    const result = await handlers['db:tasks:delete'](event, { id: 't1' });
+    expect(result.data).toEqual({ deleted: true, id: 't1' });
+    expect(mockSupabase.delete).toHaveBeenCalled();
+  });
+
+  it('db:tasks:delete removes completed task', async () => {
+    mockSupabase._pushResult({ data: { status: 'completed' }, error: null });
+    mockSupabase._pushResult({ data: [{ id: 't1' }], error: null });
+
+    const result = await handlers['db:tasks:delete'](event, { id: 't1' });
+    expect(result.data).toEqual({ deleted: true, id: 't1' });
+    expect(mockSupabase.delete).toHaveBeenCalled();
   });
 
   it('db:tasks:delete removes failed task', async () => {
