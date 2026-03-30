@@ -268,6 +268,19 @@ export default function Tasks() {
     fetchTasks();
   }, [fetchTasks]);
 
+  const hasActiveTask = useMemo(
+    () => tasks.some((t) => t.status === 'running' || t.status === 'pending'),
+    [tasks]
+  );
+
+  useEffect(() => {
+    if (!hasActiveTask) return undefined;
+    const id = setInterval(() => {
+      void useTaskStore.getState().fetchTasks();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [hasActiveTask]);
+
   /** Cancelled/stopped tasks stay in DB for audit but are hidden from this list. */
   const visibleTasks = useMemo(() => {
     return [...tasks]

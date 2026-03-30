@@ -22,7 +22,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import useAgentStore from '../store/agentStore';
-import { startAgent, stopAgent, restartAgent } from '../services/openclaw';
+import useTaskStore from '../store/taskStore';
+import { startAgent, stopAgent, restartAgent, cancelTask } from '../services/openclaw';
 import SoulEditor from '../components/agents/SoulEditor';
 import AgentsEditor from '../components/agents/AgentsEditor';
 import MemoryViewer from '../components/agents/MemoryViewer';
@@ -343,6 +344,18 @@ function AgentListItem({ agent, isSelected, onSelect }) {
 function AgentDetailPanel({ agent }) {
   const [actionLoading, setActionLoading] = useState(null);
   const badge = statusBadgeProps(agent.status || 'idle');
+  const activeTaskId = useAgentStore((s) => s.activeTaskId);
+  const tasks = useTaskStore((s) => s.tasks);
+
+  const orchestrationTaskId = useMemo(() => {
+    if (activeTaskId) return activeTaskId;
+    const running = tasks.filter((t) => t.status === 'running');
+    const sorted = [...running].sort(
+      (a, b) =>
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    return sorted[0]?.id ?? null;
+  }, [activeTaskId, tasks]);
 
   const handleStart = useCallback(async () => {
     setActionLoading('start');
@@ -358,13 +371,19 @@ function AgentDetailPanel({ agent }) {
   const handleStop = useCallback(async () => {
     setActionLoading('stop');
     try {
+      if (orchestrationTaskId) {
+        const res = await cancelTask({ taskId: orchestrationTaskId });
+        if (res?.error) {
+          console.error('[Agents] cancelTask failed:', res.error);
+        }
+      }
       await stopAgent(agent.id);
     } catch (err) {
       console.error('[Agents] stopAgent failed:', err);
     } finally {
       setActionLoading(null);
     }
-  }, [agent.id]);
+  }, [agent.id, orchestrationTaskId]);
 
   const handleRestart = useCallback(async () => {
     setActionLoading('restart');

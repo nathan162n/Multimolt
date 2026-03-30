@@ -113,8 +113,8 @@ describe('agentStore', () => {
   });
 
   // -------------------------------------------------------
-  it('submitGoal sets activeGoal and isRunning', async () => {
-    openclaw.submitGoal.mockResolvedValueOnce({ taskId: 't1' });
+  it('submitGoal sets activeGoal and isRunning (IPC returns data.taskId)', async () => {
+    openclaw.submitGoal.mockResolvedValueOnce({ data: { taskId: 't1' } });
 
     const result = await useAgentStore.getState().submitGoal('deploy to prod');
 
@@ -123,8 +123,14 @@ describe('agentStore', () => {
     expect(state.isRunning).toBe(true);
     expect(state.isStopping).toBe(false);
     expect(state.activeTaskId).toBe('t1');
-    expect(result).toEqual({ taskId: 't1' });
+    expect(result).toEqual({ data: { taskId: 't1' } });
     expect(openclaw.submitGoal).toHaveBeenCalledWith({ goal: 'deploy to prod' });
+  });
+
+  it('submitGoal still reads legacy top-level taskId', async () => {
+    openclaw.submitGoal.mockResolvedValueOnce({ taskId: 'legacy' });
+    await useAgentStore.getState().submitGoal('goal');
+    expect(useAgentStore.getState().activeTaskId).toBe('legacy');
   });
 
   // -------------------------------------------------------
@@ -139,7 +145,7 @@ describe('agentStore', () => {
       activeGoal: 'do stuff',
       isRunning: true,
     });
-    openclaw.cancelTask.mockResolvedValueOnce(undefined);
+    openclaw.cancelTask.mockResolvedValueOnce({ data: { cancelled: true } });
 
     await useAgentStore.getState().stopAll();
 

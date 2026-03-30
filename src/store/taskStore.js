@@ -90,10 +90,17 @@ const useTaskStore = create(
     },
 
     /**
-     * Fetch all tasks from the database.
+     * Fetch all tasks from the database and merge with in-memory active tasks.
+     * Gateway events (task:started / task:progress) update the store before the DB
+     * row always reflects "running"; a plain replace would hide ongoing work on the Tasks screen.
      */
     fetchTasks: async () => {
       try {
+        const prevTasks = get().tasks;
+        const localActive = prevTasks.filter(
+          (t) => t?.id && (t.status === 'running' || t.status === 'pending')
+        );
+
         const result = await db.listTasks();
         if (result?.error) {
           console.error('[TaskStore] fetchTasks DB error:', result.error);
@@ -101,21 +108,64 @@ const useTaskStore = create(
         }
         const raw = result?.data;
         const taskList = Array.isArray(raw) ? raw : [];
-        set({
-          tasks: taskList.map((t) => ({
-            id: t.id,
-            goal: t.goal || '',
-            status: t.status || 'pending',
-            agentId: t.agentId || null,
-            assigned_agents: t.assigned_agents,
-            createdAt: t.createdAt || t.created_at || Date.now(),
-            updatedAt: t.updatedAt || t.updated_at || Date.now(),
-            completedAt: t.completedAt || t.completed_at || null,
-            progress: t.progress || 0,
-            result: t.result || null,
-            error: t.error || null,
-          })),
+
+        const toRow = (t) => ({
+          id: t.id,
+          goal: t.goal || '',
+          status: t.status || 'pending',
+          agentId: t.agentId || null,
+          assigned_agents: t.assigned_agents,
+          createdAt: t.createdAt || t.created_at || Date.now(),
+          updatedAt: t.updatedAt || t.updated_at || Date.now(),
+          completedAt: t.completedAt || t.completed_at || null,
+          progress: t.progress || 0,
+          result: t.result || null,
+          error: t.error || null,
         });
+
+        const terminal = new Set(['completed', 'failed', 'cancelled']);
+        const dbRows = taskList.map(toRow);
+        const byId = new Map(dbRows.map((r) => [String(r.id), { ...r }]));
+
+        for (const local of localActive) {
+          const key = String(local.id);
+          const existing = byId.get(key);
+          if (existing && terminal.has(existing.status)) {
+            continue;
+          }
+          if (!existing) {
+            byId.set(key, {
+              id: local.id,
+              goal: local.goal || '',
+              status: local.status || 'pending',
+              agentId: local.agentId || null,
+              assigned_agents: local.assigned_agents,
+              createdAt: local.createdAt || Date.now(),
+              updatedAt: local.updatedAt || Date.now(),
+              completedAt: local.completedAt || null,
+              progress: local.progress || 0,
+              result: local.result || null,
+              error: local.error || null,
+            });
+          } else {
+            existing.progress = Math.max(existing.progress || 0, local.progress || 0);
+            if (local.status === 'running' && existing.status === 'pending') {
+              existing.status = 'running';
+            }
+            if (local.goal && !existing.goal) {
+              existing.goal = local.goal;
+            }
+          }
+        }
+
+        const merged = Array.from(byId.values());
+        merged.sort((a, b) => {
+          const aTime = new Date(a.createdAt || 0).getTime();
+          const bTime = new Date(b.createdAt || 0).getTime();
+          return bTime - aTime;
+        });
+
+        set({ tasks: merged });
       } catch (err) {
         console.error('[TaskStore] fetchTasks failed:', err);
       }

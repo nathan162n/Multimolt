@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import * as db from '../services/db';
 import * as openclaw from '../services/openclaw';
+import useTaskStore from './taskStore';
 
 /**
  * Agent Store — Zustand with subscribeWithSelector middleware.
@@ -85,8 +86,15 @@ const useAgentStore = create(
       set({ activeGoal: goalText, isRunning: true, isStopping: false });
       try {
         const result = await openclaw.submitGoal({ goal: goalText });
-        if (result?.taskId) {
-          set({ activeTaskId: result.taskId });
+        if (result?.error) {
+          set({ isRunning: false, activeGoal: null, activeTaskId: null });
+          throw new Error(
+            typeof result.error === 'string' ? result.error : 'Goal submission failed'
+          );
+        }
+        const taskId = result?.data?.taskId ?? result?.taskId ?? null;
+        if (taskId) {
+          set({ activeTaskId: taskId });
         }
         return result;
       } catch (err) {
@@ -139,19 +147,31 @@ const useAgentStore = create(
      * Stop all running agents and cancel the active task.
      */
     stopAll: async () => {
-      const { activeTaskId } = get();
+      let taskId = get().activeTaskId;
+      if (!taskId) {
+        const tasks = useTaskStore.getState().tasks.filter((t) => t.status === 'running');
+        const pick = [...tasks].sort((a, b) => {
+          const ta = new Date(a.createdAt || 0).getTime();
+          const tb = new Date(b.createdAt || 0).getTime();
+          return tb - ta;
+        })[0];
+        taskId = pick?.id ?? null;
+      }
+
       set({ isStopping: true });
       try {
-        if (activeTaskId) {
-          await openclaw.cancelTask({ taskId: activeTaskId });
+        if (taskId) {
+          const res = await openclaw.cancelTask({ taskId });
+          if (res?.error) {
+            throw new Error(typeof res.error === 'string' ? res.error : 'Failed to cancel task');
+          }
         }
-        // Reset all agents to idle
         set((state) => {
           const updated = {};
           for (const [id, agent] of Object.entries(state.agents)) {
             updated[id] = {
               ...agent,
-              status: agent.status === 'running' ? 'idle' : agent.status,
+              status: ['running', 'paused'].includes(agent.status) ? 'idle' : agent.status,
               currentAction: null,
             };
           }

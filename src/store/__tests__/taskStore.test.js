@@ -156,10 +156,10 @@ describe('taskStore', () => {
   });
 
   // -------------------------------------------------------
-  it('fetchTasks populates from DB', async () => {
+  it('fetchTasks populates from DB (newest createdAt first)', async () => {
     const mockTasks = [
-      { id: 't1', goal: 'Scan repos', status: 'completed', progress: 100, result: 'ok', created_at: 500, updated_at: 600 },
-      { id: 't2', goal: 'Deploy', status: 'pending' },
+      { id: 't2', goal: 'Deploy', status: 'pending', created_at: 1000, updated_at: 1000 },
+      { id: 't1', goal: 'Scan repos', status: 'completed', progress: 100, result: 'ok', created_at: 2000, updated_at: 2100 },
     ];
     db.listTasks.mockResolvedValueOnce({ data: mockTasks });
 
@@ -173,8 +173,8 @@ describe('taskStore', () => {
       status: 'completed',
       progress: 100,
       result: 'ok',
-      createdAt: 500,
-      updatedAt: 600,
+      createdAt: 2000,
+      updatedAt: 2100,
     });
     expect(state.tasks[1]).toMatchObject({
       id: 't2',
@@ -185,5 +185,43 @@ describe('taskStore', () => {
       error: null,
     });
     expect(db.listTasks).toHaveBeenCalledOnce();
+  });
+
+  it('fetchTasks merges local running over DB pending for same id', async () => {
+    useTaskStore.setState({
+      tasks: [
+        {
+          id: 'live',
+          goal: 'Ship feature',
+          status: 'running',
+          progress: 42,
+          createdAt: 3000,
+          updatedAt: 3000,
+          result: null,
+          error: null,
+        },
+      ],
+    });
+    db.listTasks.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'live',
+          goal: 'Ship feature',
+          status: 'pending',
+          created_at: 3000,
+          updated_at: 3000,
+        },
+      ],
+    });
+
+    await useTaskStore.getState().fetchTasks();
+
+    const state = useTaskStore.getState();
+    expect(state.tasks).toHaveLength(1);
+    expect(state.tasks[0]).toMatchObject({
+      id: 'live',
+      status: 'running',
+      progress: 42,
+    });
   });
 });

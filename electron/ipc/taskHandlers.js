@@ -126,7 +126,26 @@ module.exports = function registerTaskHandlers(mainWindow) {
       .eq('id', id)
       .maybeSingle();
     if (fetchErr) return { error: fetchErr.message };
-    if (!row) return { error: 'Task not found' };
+
+    // No DB row (never persisted, RLS edge, or drift) but UI can still show a
+    // running task from the gateway — stop the run and sync the renderer.
+    if (!row) {
+      const now = new Date().toISOString();
+      if (gatewayBridge.isConnected) {
+        gatewayBridge.request('task.cancel', { taskId: id }).catch((err) => {
+          console.error('[taskHandlers] Gateway cancel failed:', err.message);
+        });
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('task:cancelled', {
+          taskId: id,
+          reason: 'Cancelled by user',
+          cancelledAt: now,
+        });
+      }
+      return { data: { cancelled: true, taskId: id, dbSkipped: true } };
+    }
+
     if (!['pending', 'running'].includes(row.status)) {
       return { error: 'Only pending or running tasks can be cancelled or stopped' };
     }
