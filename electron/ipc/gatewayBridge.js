@@ -4,7 +4,7 @@ const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
 /** Timeout (ms) to wait for a protocol v3 challenge before falling back to v1.0 */
-const CHALLENGE_TIMEOUT_MS = 3000;
+const CHALLENGE_TIMEOUT_MS = 8000;
 
 class GatewayBridge {
   constructor() {
@@ -38,6 +38,25 @@ class GatewayBridge {
     this._handshakeComplete = false;
     /** @type {Array<{ resolve: Function, reject: Function, timer: NodeJS.Timeout }>} IPC waiters for handshake */
     this._handshakeWaiters = [];
+    /**
+     * Token for connect frames — set from loadGatewayToken() (env + Settings keychain).
+     * `null` means "not loaded yet"; fall back to env only for tests.
+     * @type {string|null}
+     */
+    this._connectToken = null;
+  }
+
+  /**
+   * Set the token used in v3/v1 connect auth (call after loadGatewayToken()).
+   * @param {string} token
+   */
+  setConnectToken(token) {
+    this._connectToken = token != null ? String(token).trim() : '';
+  }
+
+  _getConnectToken() {
+    if (this._connectToken !== null) return this._connectToken;
+    return (process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
   }
 
   /**
@@ -155,9 +174,31 @@ class GatewayBridge {
       }
 
       if (frame.type === 'res') {
-        // Check if this is the hello-ok response to our connect request
-        if (!this._handshakeComplete && frame.ok && frame.payload?.type === 'hello-ok') {
-          this._onHandshakeComplete(frame.payload);
+        // v3 connect rejected (bad token, policy, etc.) — surface error instead of hanging
+        if (!this._handshakeComplete) {
+          if (frame.ok && frame.payload?.type === 'hello-ok') {
+            this._onHandshakeComplete(frame.payload);
+            return;
+          }
+          if (!frame.ok) {
+            const msg =
+              frame.error?.message ||
+              frame.error ||
+              'Gateway rejected the connect handshake (check token and gateway config)';
+            console.error('[GatewayBridge]', msg);
+            this.forwardToRenderer('gateway:error', { message: msg });
+            this._rejectHandshakeWaiters(new Error(msg));
+            if (this._challengeTimer) {
+              clearTimeout(this._challengeTimer);
+              this._challengeTimer = null;
+            }
+            try {
+              if (this.ws) this.ws.close();
+            } catch (_) {
+              /* ignore */
+            }
+            return;
+          }
         }
 
         const pending = this.pendingRequests.get(frame.id);
@@ -243,7 +284,7 @@ class GatewayBridge {
     }
 
     this._protocolVersion = 3;
-    const token = process.env.OPENCLAW_GATEWAY_TOKEN || '';
+    const token = this._getConnectToken();
 
     this.sendFrame({
       type: 'req',
@@ -280,7 +321,7 @@ class GatewayBridge {
       method: 'connect',
       params: {
         version: '1.0',
-        token: process.env.OPENCLAW_GATEWAY_TOKEN || '',
+        token: this._getConnectToken(),
       },
     });
 

@@ -230,7 +230,7 @@ describe('GatewayBridge', () => {
     expect(ws.send).not.toHaveBeenCalled();
 
     // Advance past the challenge timeout (3s)
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
 
     // Should have sent a v1.0 connect frame
     expect(ws.send).toHaveBeenCalledTimes(1);
@@ -251,7 +251,7 @@ describe('GatewayBridge', () => {
     ws._emit('open');
 
     // Fast-track to connected via v1.0 fallback
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
     ws.send.mockClear();
 
     // Gateway sends a tick event
@@ -283,7 +283,7 @@ describe('GatewayBridge', () => {
     bridge.connect('ws://localhost:18789');
     const ws = bridge.ws;
     ws._emit('open');
-    vi.advanceTimersByTime(3001); // v1.0 fallback
+    vi.advanceTimersByTime(8001); // v1.0 fallback
 
     const requestPromise = bridge.request('agent.list', { filter: 'all' });
 
@@ -304,7 +304,7 @@ describe('GatewayBridge', () => {
     bridge.connect('ws://localhost:18789');
     const ws = bridge.ws;
     ws._emit('open');
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
 
     const requestPromise = bridge.request('agent.list', {}, 5000);
     vi.advanceTimersByTime(5001);
@@ -320,7 +320,7 @@ describe('GatewayBridge', () => {
     bridge.connect('ws://localhost:18789');
     const ws = bridge.ws;
     ws._emit('open');
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
 
     const eventFrame = {
       type: 'event',
@@ -336,7 +336,7 @@ describe('GatewayBridge', () => {
     bridge.connect('ws://localhost:18789');
     const ws = bridge.ws;
     ws._emit('open');
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
 
     const checkpointPayload = {
       type: 'security_checkpoint',
@@ -356,7 +356,7 @@ describe('GatewayBridge', () => {
     bridge.connect('ws://localhost:18789');
     const ws = bridge.ws;
     ws._emit('open');
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
 
     ws._emit('message', JSON.stringify({
       type: 'event',
@@ -378,7 +378,7 @@ describe('GatewayBridge', () => {
     bridge.connect('ws://localhost:18789');
     const ws = bridge.ws;
     ws._emit('open');
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
 
     expect(bridge.isConnected).toBe(true);
 
@@ -410,7 +410,7 @@ describe('GatewayBridge', () => {
     bridge.connect('ws://localhost:18789');
     const ws = bridge.ws;
     ws._emit('open');
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(8001);
 
     bridge.disconnect();
 

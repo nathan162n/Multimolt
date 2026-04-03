@@ -5,6 +5,7 @@ require('dotenv').config();
 const { app, BrowserWindow, session, ipcMain } = require('electron');
 const path = require('path');
 const gatewayBridge = require('./ipc/gatewayBridge');
+const { loadGatewayToken } = require('./services/gatewayToken');
 const { registerProtocol, handleDeepLink } = require('./services/protocolHandler');
 
 // MUST be called before app.whenReady()
@@ -147,7 +148,12 @@ function createWindow() {
     if (gatewayBridge.isConnected || !gatewayBridge.shouldReconnect || !gatewayBridge._url) return;
     lastGatewayFocusReconnectAt = now;
     gatewayBridge.reconnectDelay = 1000;
-    gatewayBridge.connect(gatewayBridge._url);
+    loadGatewayToken()
+      .then((tok) => {
+        gatewayBridge.setConnectToken(tok);
+        gatewayBridge.connect(gatewayBridge._url);
+      })
+      .catch(() => gatewayBridge.connect(gatewayBridge._url));
   });
 
   // Log renderer errors for debugging
@@ -173,6 +179,12 @@ app.whenReady().then(async () => {
   gatewayBridge.init(win);
 
   const gatewayUrl = await resolveGatewayUrl();
+  try {
+    gatewayBridge.setConnectToken(await loadGatewayToken());
+  } catch (err) {
+    console.warn('[HiveMind] gateway token load failed:', err.message);
+    gatewayBridge.setConnectToken('');
+  }
   gatewayBridge.connect(gatewayUrl);
 
   // Register all IPC handlers — each module receives the mainWindow reference
@@ -238,6 +250,12 @@ app.whenReady().then(async () => {
     const explicit = url && String(url).trim();
     const raw = explicit || (await resolveGatewayUrl());
     const targetUrl = normalizeGatewayLoopbackUrl(raw);
+    try {
+      gatewayBridge.setConnectToken(await loadGatewayToken());
+    } catch (err) {
+      console.warn('[HiveMind] gateway token load failed:', err.message);
+      gatewayBridge.setConnectToken('');
+    }
     gatewayBridge.disconnect();
     gatewayBridge.shouldReconnect = true;
     gatewayBridge.connect(targetUrl);
@@ -297,7 +315,15 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     const win = createWindow();
     gatewayBridge.init(win);
-    resolveGatewayUrl().then((u) => gatewayBridge.connect(u));
+    resolveGatewayUrl().then(async (u) => {
+      try {
+        gatewayBridge.setConnectToken(await loadGatewayToken());
+      } catch (err) {
+        console.warn('[HiveMind] gateway token load failed:', err.message);
+        gatewayBridge.setConnectToken('');
+      }
+      gatewayBridge.connect(u);
+    });
   }
 });
 

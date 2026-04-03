@@ -311,7 +311,7 @@ function ApiKeysTab() {
           <ApiKeyField
             label="Gateway Token"
             provider="gateway_token"
-            description="Authentication token for the OpenClaw Gateway daemon."
+            description="Sent on WebSocket connect if OPENCLAW_GATEWAY_TOKEN is not set in .env. Must match your OpenClaw gateway; leave empty for the mock gateway."
           />
         </CardContent>
       </Card>

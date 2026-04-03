@@ -251,6 +251,20 @@ module.exports = function registerSystemHandlers(mainWindow) {
       const ks = await getKeyStore();
       const encrypted = safeStorage.encryptString(key);
       ks.set(`apiKeys.${provider}`, encrypted.toString('base64'));
+
+      if (provider === 'gateway_token') {
+        const gatewayBridge = require('./gatewayBridge');
+        const { loadGatewayToken } = require('../services/gatewayToken');
+        try {
+          gatewayBridge.setConnectToken(await loadGatewayToken());
+        } catch (e) {
+          gatewayBridge.setConnectToken('');
+        }
+        if (gatewayBridge._url && gatewayBridge.shouldReconnect) {
+          gatewayBridge.connect(gatewayBridge._url);
+        }
+      }
+
       return { data: { saved: true, provider } };
     } catch (err) {
       return { error: err.message };
@@ -289,6 +303,20 @@ module.exports = function registerSystemHandlers(mainWindow) {
     try {
       const ks = await getKeyStore();
       ks.delete(`apiKeys.${provider}`);
+
+      if (provider === 'gateway_token') {
+        const gatewayBridge = require('./gatewayBridge');
+        const { loadGatewayToken } = require('../services/gatewayToken');
+        try {
+          gatewayBridge.setConnectToken(await loadGatewayToken());
+        } catch (e) {
+          gatewayBridge.setConnectToken('');
+        }
+        if (gatewayBridge._url && gatewayBridge.shouldReconnect) {
+          gatewayBridge.connect(gatewayBridge._url);
+        }
+      }
+
       return { data: { deleted: true, provider } };
     } catch (err) {
       return { error: err.message };
