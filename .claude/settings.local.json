@@ -105,5 +105,9 @@
       "Bash(GEMINI_API_KEY=AIzaSyBAmnHXvAvLEXyBRCOTFKykV-OYWOaXLjE openclaw models list --all 2>&1)",
       "Bash(GEMINI_API_KEY=AIzaSyBAmnHXvAvLEXyBRCOTFKykV-OYWOaXLjE openclaw agent --agent orchestrator --message \"Say hello in exactly 5 words.\" --thinking low)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "shadcn",
+    "supabase"
+  ]
 }

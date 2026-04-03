@@ -9,12 +9,15 @@ const { getOpenClawBase, getWorkspacePath, getAgentDir, safeReadFile } = require
  * This config drives the OpenClaw Gateway — it defines all agents, their workspaces,
  * models, tools, and gateway settings.
  *
- * Follows the OpenClaw configuration reference:
+ * Only produces fields recognized by the OpenClaw CLI schema:
  * - agents.defaults: workspace, model, sandbox, heartbeat, compaction
  * - agents.list: per-agent overrides with identity, tools, sandbox
  * - gateway: port, bind, auth, controlUi, reload
  * - skills: entries, load config
  * - session: dmScope, reset, maintenance
+ *
+ * CLI-managed sections (plugins, wizard, meta) are preserved by writeConfig
+ * via merge — buildConfig does not emit them.
  *
  * @param {object[]} agents  Agent records from the Supabase `agents` table
  * @param {object}   [options]
@@ -24,14 +27,14 @@ const { getOpenClawBase, getWorkspacePath, getAgentDir, safeReadFile } = require
  */
 function buildConfig(agents, options = {}) {
   const { gatewayPort = 18789, authMode = 'token' } = options;
-  const gatewayToken = String(process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
 
   const agentList = agents.map((agent) => {
+    const model = (agent.model || '').trim();
     const entry = {
       id: agent.id,
       workspace: agent.workspace || getWorkspacePath(agent.id),
       agentDir: getAgentDir(agent.id),
-      model: agent.model,
+      model,
       identity: {
         name: agent.name,
         emoji: '',
@@ -55,7 +58,7 @@ function buildConfig(agents, options = {}) {
   // Find the default model from the majority of agents
   const modelCounts = {};
   for (const agent of agents) {
-    const m = agent.model || 'gemini/gemini-2.0-flash';
+    const m = (agent.model || 'gemini/gemini-2.0-flash').trim();
     modelCounts[m] = (modelCounts[m] || 0) + 1;
   }
   const defaultModel = Object.entries(modelCounts)
@@ -68,10 +71,7 @@ function buildConfig(agents, options = {}) {
         model: { primary: defaultModel },
         sandbox: { mode: 'all' },
         heartbeat: { every: '30m', target: 'last' },
-        // OpenClaw CLI (e.g. 2026.3.x) rejects compaction.timeoutSeconds — keep schema minimal.
         compaction: { mode: 'safeguard' },
-        timeoutSeconds: 600,
-        contextTokens: 200000,
       },
       list: agentList,
     },
@@ -87,8 +87,6 @@ function buildConfig(agents, options = {}) {
       profile: 'coding',
       exec: { backgroundMs: 10000, timeoutSec: 1800 },
       sessions: { visibility: 'tree' },
-      // OpenClaw CLI health checks expect credentials when using URL overrides; matches OPENCLAW_GATEWAY_TOKEN / HiveMind bridge.
-      ...(gatewayToken ? { gatewayToken } : {}),
     },
     skills: {
       entries: {},
@@ -111,16 +109,41 @@ function buildConfig(agents, options = {}) {
  * Write the generated config to ~/.openclaw/openclaw.json.
  * Creates the directory if it does not exist.
  *
+ * Reads the existing config first and merges so that CLI-managed sections
+ * (plugins, wizard, meta, gateway.auth.token) are preserved. Our sections
+ * (agents, gateway basics, tools, skills, session, bindings) always win.
+ *
  * @param {object[]} agents  Agent records from the database
  * @param {object}   [options]  Options passed to buildConfig
  * @returns {Promise<{written: boolean, path: string, agentCount: number}>}
  */
 async function writeConfig(agents, options = {}) {
-  const config = buildConfig(agents, options);
+  const generated = buildConfig(agents, options);
   const configPath = path.join(getOpenClawBase(), 'openclaw.json');
 
   await fs.mkdir(getOpenClawBase(), { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+  // Read existing config to preserve CLI-managed sections
+  const existing = await readConfig();
+
+  // Merge: our generated config takes precedence for sections we manage,
+  // but we preserve CLI-owned top-level sections and gateway.auth extras.
+  const merged = { ...existing, ...generated };
+
+  // Preserve gateway.auth.token if the CLI set one and we don't override it
+  if (existing?.gateway?.auth?.token && !generated.gateway.auth.token) {
+    merged.gateway = {
+      ...generated.gateway,
+      auth: { ...generated.gateway.auth, token: existing.gateway.auth.token },
+    };
+  }
+
+  // Preserve CLI-managed sections that buildConfig doesn't emit
+  if (existing?.plugins) merged.plugins = existing.plugins;
+  if (existing?.wizard) merged.wizard = existing.wizard;
+  if (existing?.meta) merged.meta = existing.meta;
+
+  await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');
 
   return {
     written: true,

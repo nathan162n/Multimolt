@@ -119,6 +119,23 @@ describe('openclawConfig', () => {
     expect(config.agents.defaults.model.primary).toBe('gemini/gemini-2.0-flash');
   });
 
+  it('does not include timeoutSeconds or contextTokens in defaults', () => {
+    const config = buildConfig([]);
+
+    expect(config.agents.defaults).not.toHaveProperty('timeoutSeconds');
+    expect(config.agents.defaults).not.toHaveProperty('contextTokens');
+  });
+
+  it('trims whitespace and newlines from model strings', () => {
+    const agents = [
+      { id: 'test', name: 'Test', model: 'google/gemini-2.0-flash\n' },
+    ];
+    const config = buildConfig(agents);
+
+    expect(config.agents.list[0].model).toBe('google/gemini-2.0-flash');
+    expect(config.agents.defaults.model.primary).toBe('google/gemini-2.0-flash');
+  });
+
   it('includes gateway, skills, and session sections', () => {
     const config = buildConfig([]);
 
@@ -148,14 +165,9 @@ describe('openclawConfig', () => {
     expect(config.bindings).toEqual([]);
   });
 
-  it('includes tools.gatewayToken when OPENCLAW_GATEWAY_TOKEN is set', () => {
-    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', '  my-token  ');
-    delete require_.cache[openclawConfigPath];
-    const { buildConfig: bc } = require_(openclawConfigPath);
-    const config = bc([]);
-    expect(config.tools.gatewayToken).toBe('my-token');
-    vi.unstubAllEnvs();
-    delete require_.cache[openclawConfigPath];
+  it('does not include gatewayToken in tools section', () => {
+    const config = buildConfig([]);
+    expect(config.tools).not.toHaveProperty('gatewayToken');
   });
 
   it('accepts custom gateway options', () => {
@@ -253,6 +265,54 @@ describe('openclawConfig', () => {
     const writtenContent = mockFsPromises.writeFile.mock.calls[0][1];
     const parsed = JSON.parse(writtenContent);
     expect(parsed.gateway.port).toBe(9999);
+  });
+
+  it('preserves CLI-managed sections (plugins, wizard, meta) on merge', async () => {
+    const existingConfig = {
+      agents: { defaults: {}, list: [] },
+      gateway: { port: 18789 },
+      plugins: { entries: { browser: { enabled: true } } },
+      wizard: { lastRunAt: '2026-04-03T01:49:59.038Z', lastRunVersion: '2026.4.2' },
+      meta: { lastTouchedVersion: '2026.4.2' },
+    };
+    mockSafeReadFile.mockResolvedValue(JSON.stringify(existingConfig));
+
+    await writeConfig([]);
+
+    const writtenContent = mockFsPromises.writeFile.mock.calls[0][1];
+    const parsed = JSON.parse(writtenContent);
+    expect(parsed.plugins).toEqual({ entries: { browser: { enabled: true } } });
+    expect(parsed.wizard.lastRunVersion).toBe('2026.4.2');
+    expect(parsed.meta.lastTouchedVersion).toBe('2026.4.2');
+  });
+
+  it('preserves gateway.auth.token from existing config', async () => {
+    const existingConfig = {
+      agents: { defaults: {}, list: [] },
+      gateway: { auth: { mode: 'token', token: 'existing-secret-token' } },
+    };
+    mockSafeReadFile.mockResolvedValue(JSON.stringify(existingConfig));
+
+    await writeConfig([]);
+
+    const writtenContent = mockFsPromises.writeFile.mock.calls[0][1];
+    const parsed = JSON.parse(writtenContent);
+    expect(parsed.gateway.auth.token).toBe('existing-secret-token');
+    expect(parsed.gateway.auth.mode).toBe('token');
+  });
+
+  it('works cleanly when no existing config exists', async () => {
+    mockSafeReadFile.mockResolvedValue(null);
+
+    await writeConfig([]);
+
+    const writtenContent = mockFsPromises.writeFile.mock.calls[0][1];
+    const parsed = JSON.parse(writtenContent);
+    expect(parsed.agents).toBeDefined();
+    expect(parsed.gateway).toBeDefined();
+    expect(parsed.plugins).toBeUndefined();
+    expect(parsed.wizard).toBeUndefined();
+    expect(parsed.meta).toBeUndefined();
   });
 
   // ==========================================================================
