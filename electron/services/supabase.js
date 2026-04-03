@@ -133,4 +133,108 @@ function reconfigure(url, anonKey) {
   return supabaseInstance;
 }
 
-module.exports = { getSupabase, getUserId, setUserSession, clearUserSession, reconfigure };
+// =============================================================================
+// Schema-resilient helpers
+//
+// Migration 0007 adds user_id to all data tables. If migrations haven't been
+// applied, inserts that include user_id will fail with a PostgREST schema cache
+// error. These helpers detect that and retry without user_id so the app remains
+// functional pre-migration. A single console warning nudges the dev to migrate.
+// =============================================================================
+
+let _schemaHasUserId = true;
+let _warnedOnce = false;
+
+function _isUserIdSchemaError(err) {
+  const msg = err?.message || '';
+  return msg.includes('user_id') && msg.includes('schema cache');
+}
+
+function _warnMigration() {
+  if (!_warnedOnce) {
+    _warnedOnce = true;
+    console.warn(
+      '[Supabase] user_id column missing from one or more tables. ' +
+        'Run migrations to fix: npx supabase db push'
+    );
+  }
+}
+
+/**
+ * Remove `user_id` from a record if the schema doesn't support it.
+ * @param {object} record
+ * @returns {object}
+ */
+function stripUserId(record) {
+  if (_schemaHasUserId || !('user_id' in record)) return record;
+  const { user_id, ...rest } = record;
+  return rest;
+}
+
+/**
+ * Insert a record into a table, falling back to omitting user_id if the
+ * column doesn't exist in the schema.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} table
+ * @param {object} record
+ * @returns {Promise<{data: any, error: any}>}
+ */
+async function safeInsert(supabase, table, record) {
+  const cleaned = stripUserId(record);
+  const result = await supabase.from(table).insert(cleaned).select().maybeSingle();
+
+  if (result.error && _isUserIdSchemaError(result.error)) {
+    _schemaHasUserId = false;
+    _warnMigration();
+    const { user_id, ...rest } = record;
+    return supabase.from(table).insert(rest).select().maybeSingle();
+  }
+
+  if (!result.error && 'user_id' in record) {
+    _schemaHasUserId = true;
+  }
+  return result;
+}
+
+/**
+ * Upsert a record into a table, falling back to omitting user_id if the
+ * column doesn't exist in the schema.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} table
+ * @param {object} record
+ * @param {object} [opts]
+ * @returns {Promise<{data: any, error: any}>}
+ */
+async function safeUpsert(supabase, table, record, opts) {
+  const cleaned = stripUserId(record);
+  const q = opts
+    ? supabase.from(table).upsert(cleaned, opts)
+    : supabase.from(table).upsert(cleaned);
+  const result = await q.select().maybeSingle();
+
+  if (result.error && _isUserIdSchemaError(result.error)) {
+    _schemaHasUserId = false;
+    _warnMigration();
+    const { user_id, ...rest } = record;
+    const q2 = opts
+      ? supabase.from(table).upsert(rest, opts)
+      : supabase.from(table).upsert(rest);
+    return q2.select().maybeSingle();
+  }
+
+  if (!result.error && 'user_id' in record) {
+    _schemaHasUserId = true;
+  }
+  return result;
+}
+
+module.exports = {
+  getSupabase,
+  getUserId,
+  setUserSession,
+  clearUserSession,
+  reconfigure,
+  safeInsert,
+  safeUpsert,
+  stripUserId,
+};

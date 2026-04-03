@@ -49,25 +49,47 @@ const useTaskStore = create(
     },
 
     /**
-     * Add a task to the local task list.
+     * Add a task to the local task list. If a task with the same id already
+     * exists, merge the new fields into it instead of creating a duplicate.
      */
     addTask: (task) => {
-      set((state) => ({
-        tasks: [
-          {
-            id: task.id,
-            goal: task.goal || '',
-            status: task.status || 'pending',
-            agentId: task.agentId || null,
-            createdAt: task.createdAt || Date.now(),
-            updatedAt: task.updatedAt || Date.now(),
-            progress: task.progress || 0,
-            result: task.result || null,
-            error: task.error || null,
-          },
-          ...state.tasks,
-        ],
-      }));
+      set((state) => {
+        const existing = state.tasks.find((t) => t.id === task.id);
+        if (existing) {
+          return {
+            tasks: state.tasks.map((t) =>
+              t.id === task.id
+                ? {
+                    ...t,
+                    goal: task.goal || t.goal,
+                    status: task.status || t.status,
+                    agentId: task.agentId ?? t.agentId,
+                    updatedAt: Date.now(),
+                    progress: task.progress ?? t.progress,
+                    result: task.result ?? t.result,
+                    error: task.error ?? t.error,
+                  }
+                : t
+            ),
+          };
+        }
+        return {
+          tasks: [
+            {
+              id: task.id,
+              goal: task.goal || '',
+              status: task.status || 'pending',
+              agentId: task.agentId || null,
+              createdAt: task.createdAt || Date.now(),
+              updatedAt: task.updatedAt || Date.now(),
+              progress: task.progress || 0,
+              result: task.result || null,
+              error: task.error || null,
+            },
+            ...state.tasks,
+          ],
+        };
+      });
     },
 
     /**

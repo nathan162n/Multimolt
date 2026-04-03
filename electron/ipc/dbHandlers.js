@@ -1,7 +1,7 @@
 'use strict';
 
 const { ipcMain } = require('electron');
-const { getSupabase } = require('../services/supabase');
+const { getSupabase, safeInsert, safeUpsert, stripUserId } = require('../services/supabase');
 const requireAuth = require('./requireAuth');
 const gatewayBridge = require('./gatewayBridge');
 
@@ -57,11 +57,7 @@ module.exports = function registerDbHandlers() {
       user_id: agent.user_id || auth.userId,
     };
 
-    const { data, error } = await supabase
-      .from('agents')
-      .upsert(record, { onConflict: 'id' })
-      .select()
-      .single();
+    const { data, error } = await safeUpsert(supabase, 'agents', record, { onConflict: 'id' });
 
     if (error) return { error: error.message };
     return { data };
@@ -138,11 +134,7 @@ module.exports = function registerDbHandlers() {
       user_id: task.user_id || auth.userId,
     };
 
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert(record)
-      .select()
-      .single();
+    const { data, error } = await safeInsert(supabase, 'tasks', record);
 
     if (error) return { error: error.message };
     return { data };
@@ -242,11 +234,7 @@ module.exports = function registerDbHandlers() {
       user_id: entry.user_id || auth.userId,
     };
 
-    const { data, error } = await supabase
-      .from('audit_log')
-      .insert(record)
-      .select()
-      .single();
+    const { data, error } = await safeInsert(supabase, 'audit_log', record);
 
     if (error) return { error: error.message };
     return { data };
@@ -298,11 +286,7 @@ module.exports = function registerDbHandlers() {
       user_id: checkpoint.user_id || auth.userId,
     };
 
-    const { data, error } = await supabase
-      .from('checkpoints')
-      .insert(record)
-      .select()
-      .single();
+    const { data, error } = await safeInsert(supabase, 'checkpoints', record);
 
     if (error) return { error: error.message };
     return { data };
@@ -366,11 +350,7 @@ module.exports = function registerDbHandlers() {
       user_id: skill.user_id || auth.userId,
     };
 
-    const { data, error } = await supabase
-      .from('skills')
-      .upsert(record, { onConflict: 'id' })
-      .select()
-      .single();
+    const { data, error } = await safeUpsert(supabase, 'skills', record, { onConflict: 'id' });
 
     if (error) return { error: error.message };
     return { data };
@@ -403,18 +383,29 @@ module.exports = function registerDbHandlers() {
     const auth = requireAuth();
     if (auth.error) return { error: auth.error };
 
-    const { data, error } = await supabase
+    // Try user-scoped query first; fall back to key-only if user_id column is missing
+    let query = supabase
       .from('user_settings')
       .select('*')
-      .eq('key', key)
-      .eq('user_id', auth.userId)
-      .single();
+      .eq('key', key);
 
-    if (error && error.code !== 'PGRST116') {
-      // PGRST116 = no rows returned — that is not a real error for settings
-      return { error: error.message };
+    const scoped = await query.eq('user_id', auth.userId).single();
+
+    if (scoped.error && scoped.error.message && scoped.error.message.includes('schema cache')) {
+      // user_id column doesn't exist — query by key only
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('key', key)
+        .maybeSingle();
+      if (error && error.code !== 'PGRST116') return { error: error.message };
+      return { data: data || null };
     }
-    return { data: data || null };
+
+    if (scoped.error && scoped.error.code !== 'PGRST116') {
+      return { error: scoped.error.message };
+    }
+    return { data: scoped.data || null };
   });
 
   ipcMain.handle('db:settings:set', async (_event, { key, value }) => {
@@ -431,14 +422,141 @@ module.exports = function registerDbHandlers() {
       user_id: auth.userId,
     };
 
-    // Use the composite unique constraint (key, user_id)
+    // Try user-scoped upsert; fall back if user_id column is missing
+    const { data, error } = await safeUpsert(
+      supabase,
+      'user_settings',
+      record,
+      { onConflict: 'key,user_id' }
+    );
+
+    // If the composite constraint doesn't exist either, try key-only
+    if (error && (error.message.includes('user_id') || error.message.includes('constraint'))) {
+      const { user_id, ...rest } = record;
+      const fallback = await supabase
+        .from('user_settings')
+        .upsert(rest, { onConflict: 'key' })
+        .select()
+        .maybeSingle();
+      if (fallback.error) return { error: fallback.error.message };
+      return { data: fallback.data };
+    }
+
+    if (error) return { error: error.message };
+    return { data };
+  });
+
+  // ---------------------------------------------------------------------------
+  // BUILDS
+  // ---------------------------------------------------------------------------
+
+  ipcMain.handle('db:builds:list', async (_event, { limit, offset, status: filterStatus } = {}) => {
+    const supabase = getSupabase();
+    if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
+    let query = supabase
+      .from('builds')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (filterStatus) {
+      query = query.eq('status', filterStatus);
+    }
+    if (typeof limit === 'number' && limit > 0) {
+      query = query.limit(limit);
+    }
+    if (typeof offset === 'number' && offset > 0) {
+      query = query.range(offset, offset + (limit || 50) - 1);
+    }
+
+    const { data, error } = await query;
+    if (error) return { error: error.message };
+    return { data };
+  });
+
+  ipcMain.handle('db:builds:get', async (_event, { id }) => {
+    const supabase = getSupabase();
+    if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
     const { data, error } = await supabase
-      .from('user_settings')
-      .upsert(record, { onConflict: 'key,user_id' })
+      .from('builds')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) return { error: error.message };
+    return { data };
+  });
+
+  ipcMain.handle('db:builds:create', async (_event, { build }) => {
+    const supabase = getSupabase();
+    if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
+    const record = {
+      ...build,
+      created_at: build.created_at || new Date().toISOString(),
+      status: build.status || 'pending',
+      user_id: build.user_id || auth.userId,
+    };
+
+    const { data, error } = await safeInsert(supabase, 'builds', record);
+
+    if (error) return { error: error.message };
+    return { data };
+  });
+
+  ipcMain.handle('db:builds:update', async (_event, { id, updates }) => {
+    const supabase = getSupabase();
+    if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
+    const { data, error } = await supabase
+      .from('builds')
+      .update(updates)
+      .eq('id', id)
       .select()
       .single();
 
     if (error) return { error: error.message };
     return { data };
+  });
+
+  ipcMain.handle('db:builds:delete', async (_event, payload = {}) => {
+    const rawId = payload?.id;
+    const id =
+      typeof rawId === 'string' ? rawId.trim() : String(rawId ?? '').trim();
+    if (!id) return { error: 'id is required' };
+
+    const supabase = getSupabase();
+    if (!supabase) return { error: 'Supabase not configured' };
+
+    const auth = requireAuth();
+    if (auth.error) return { error: auth.error };
+
+    const { data: deletedRows, error } = await supabase
+      .from('builds')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
+    if (error) return { error: error.message };
+    if (!deletedRows || deletedRows.length === 0) {
+      return {
+        error:
+          'Build could not be deleted. It may belong to another account or RLS blocked the operation.',
+      };
+    }
+    return { data: { deleted: true, id } };
   });
 };

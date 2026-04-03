@@ -87,6 +87,27 @@ export function uninstallSkill(agentId, skillId) {
   return invoke('db:skills:delete', { id: skillId });
 }
 
+// === BUILDS ===
+export function listBuilds(filters) {
+  return invoke('db:builds:list', filters);
+}
+
+export function getBuild(buildId) {
+  return invoke('db:builds:get', { id: buildId });
+}
+
+export function createBuild(build) {
+  return invoke('db:builds:create', { build });
+}
+
+export function updateBuild(buildId, updates) {
+  return invoke('db:builds:update', { id: buildId, updates });
+}
+
+export function deleteBuild(buildId) {
+  return invoke('db:builds:delete', { id: buildId });
+}
+
 // === SETTINGS ===
 export function getSetting(key) {
   return invoke('db:settings:get', { key });

@@ -1,35 +1,71 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send } from 'lucide-react';
+import { Send, AlertCircle } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import useAgentStore from '../../store/agentStore';
+import { useGateway } from '../../hooks/useGateway';
 
 const MAX_CHARS = 2000;
+const ERROR_DISPLAY_MS = 6000;
 
 export default function GoalInput() {
   const [value, setValue] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const errorTimerRef = useRef(null);
   const submitGoal = useAgentStore((s) => s.submitGoal);
+  const { status: gwStatus } = useGateway();
+
+  useEffect(() => {
+    return () => {
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    };
+  }, []);
+
+  const showError = useCallback((msg) => {
+    setError(msg);
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = setTimeout(() => setError(null), ERROR_DISPLAY_MS);
+  }, []);
 
   const handleChange = useCallback((e) => {
     const text = e.target.value;
     if (text.length <= MAX_CHARS) {
       setValue(text);
+      if (error) setError(null);
     }
-  }, []);
+  }, [error]);
 
   const handleSubmit = useCallback(async () => {
     const trimmed = value.trim();
-    if (!trimmed) return;
+    if (!trimmed || submitting) return;
+
+    setSubmitting(true);
+    setError(null);
     setSubmitted(true);
-    await submitGoal(trimmed);
-    setTimeout(() => {
-      setValue('');
+
+    try {
+      const result = await submitGoal(trimmed);
+
+      if (result?.error) {
+        showError(result.error);
+        setSubmitted(false);
+      } else {
+        setTimeout(() => {
+          setValue('');
+          setSubmitted(false);
+        }, 600);
+      }
+    } catch (err) {
+      showError(err?.message || 'Goal submission failed');
       setSubmitted(false);
-    }, 600);
-  }, [value, submitGoal]);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [value, submitting, submitGoal, showError]);
 
   const handleKeyDown = useCallback(
     (e) => {
@@ -42,6 +78,7 @@ export default function GoalInput() {
   );
 
   const charWarning = value.length > MAX_CHARS * 0.9;
+  const gatewayDown = gwStatus !== 'connected';
 
   return (
     <AnimatePresence mode="wait">
@@ -61,21 +98,27 @@ export default function GoalInput() {
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder="What should your agents accomplish?"
+            placeholder={
+              gatewayDown
+                ? 'Gateway disconnected — connect first, then submit a goal'
+                : 'What should your agents accomplish?'
+            }
             rows={3}
+            disabled={submitting}
             className={cn(
               'resize-none font-body text-[length:var(--text-md)] leading-[22px] pr-14',
               'bg-[color:var(--color-input-bg)] border-[color:var(--color-input-border)]',
               'focus-visible:ring-[color:var(--color-input-border-focus)]',
               'text-[color:var(--color-text-primary)]',
               'placeholder:text-[color:var(--color-text-disabled)]',
-              'min-h-[90px] rounded-lg p-4'
+              'min-h-[90px] rounded-lg p-4',
+              error && 'border-[color:var(--color-status-error-dot)]'
             )}
           />
           <Button
             size="icon"
             onClick={handleSubmit}
-            disabled={!value.trim()}
+            disabled={!value.trim() || submitting}
             className={cn(
               'absolute bottom-3 right-3',
               'bg-[color:var(--color-btn-primary-bg)] text-[color:var(--color-btn-primary-text)]',
@@ -87,6 +130,23 @@ export default function GoalInput() {
             <Send className="h-4 w-4" />
           </Button>
         </div>
+
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-start gap-2 px-1"
+            >
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-[color:var(--color-status-error-dot)]" />
+              <span className="font-body text-[length:var(--text-xs)] text-[color:var(--color-status-error-dot)] leading-snug">
+                {error}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 font-body text-[length:var(--text-xs)] text-[color:var(--color-text-disabled)]">

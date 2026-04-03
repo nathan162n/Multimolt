@@ -81,26 +81,53 @@ const useAgentStore = create(
 
     /**
      * Submit a natural-language goal. Sets running state and delegates to openclaw.
+     * Returns { taskId, error? } — never throws. The caller checks `.error`.
      */
     submitGoal: async (goalText) => {
       set({ activeGoal: goalText, isRunning: true, isStopping: false });
       try {
         const result = await openclaw.submitGoal({ goal: goalText });
-        if (result?.error) {
-          set({ isRunning: false, activeGoal: null, activeTaskId: null });
-          throw new Error(
-            typeof result.error === 'string' ? result.error : 'Goal submission failed'
-          );
-        }
         const taskId = result?.data?.taskId ?? result?.taskId ?? null;
+
+        if (result?.error) {
+          // Task may have been created in the DB before the error (e.g. gateway down).
+          // Add it to the task store so it's visible on the Tasks screen.
+          if (taskId) {
+            useTaskStore.getState().addTask({
+              id: taskId,
+              goal: goalText,
+              status: 'failed',
+              error: typeof result.error === 'string' ? result.error : 'Goal submission failed',
+            });
+          }
+          set({ isRunning: false, activeGoal: null, activeTaskId: null });
+          // Refresh tasks from DB so the Tasks screen picks up the new row
+          useTaskStore.getState().fetchTasks();
+          return {
+            taskId,
+            error: typeof result.error === 'string' ? result.error : 'Goal submission failed',
+          };
+        }
+
         if (taskId) {
           set({ activeTaskId: taskId });
+          // Eagerly add the task so it appears immediately in the store
+          // (the task:started IPC event will update it, but this closes the gap)
+          useTaskStore.getState().addTask({
+            id: taskId,
+            goal: goalText,
+            status: 'running',
+          });
         }
-        return result;
+        return { taskId, error: null };
       } catch (err) {
         console.error('[AgentStore] submitGoal failed:', err);
         set({ isRunning: false, activeGoal: null, activeTaskId: null });
-        throw err;
+        useTaskStore.getState().addFeedMessage({
+          type: 'error',
+          content: `Goal submission failed: ${err.message || 'Unknown error'}`,
+        });
+        return { taskId: null, error: err.message || 'Goal submission failed' };
       }
     },
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
+  Package,
   Users,
   Hammer,
   ClipboardList,
@@ -24,6 +25,7 @@ import { useAuth } from '../../hooks/useAuth';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/builds', label: 'Builds', icon: Package },
   { to: '/agents', label: 'Agents', icon: Users },
   { to: '/builder', label: 'Builder', icon: Hammer },
   { to: '/tasks', label: 'Tasks', icon: ClipboardList },

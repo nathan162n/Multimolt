@@ -3,7 +3,7 @@
 const { ipcMain } = require('electron');
 const { v4: uuidv4 } = require('uuid');
 const gatewayBridge = require('./gatewayBridge');
-const { getSupabase } = require('../services/supabase');
+const { getSupabase, safeInsert } = require('../services/supabase');
 const requireAuth = require('./requireAuth');
 
 /**
@@ -27,7 +27,7 @@ module.exports = function registerTaskHandlers(mainWindow) {
     // Persist the task in Supabase
     const supabase = getSupabase();
     if (supabase) {
-      const { error: taskError } = await supabase.from('tasks').insert({
+      const { error: taskError } = await safeInsert(supabase, 'tasks', {
         id: taskId,
         goal,
         status: 'pending',
@@ -39,8 +39,7 @@ module.exports = function registerTaskHandlers(mainWindow) {
         console.error('[taskHandlers] Failed to persist task:', taskError.message);
       }
 
-      // Append audit log entry — append-only, never update or delete
-      const { error: auditError } = await supabase.from('audit_log').insert({
+      const { error: auditError } = await safeInsert(supabase, 'audit_log', {
         event_type: 'goal_submitted',
         task_id: taskId,
         user_id: auth.userId,
@@ -58,7 +57,6 @@ module.exports = function registerTaskHandlers(mainWindow) {
 
     // Send the goal to the Gateway for execution
     if (!gatewayBridge.isConnected) {
-      // Update the task status to reflect gateway unavailability
       if (supabase) {
         await supabase.from('tasks').update({
           status: 'failed',
@@ -75,7 +73,6 @@ module.exports = function registerTaskHandlers(mainWindow) {
         metadata: metadata || {},
       });
 
-      // Update task status to running
       if (supabase) {
         await supabase.from('tasks').update({
           status: 'running',
@@ -94,7 +91,6 @@ module.exports = function registerTaskHandlers(mainWindow) {
 
       return { data: { taskId, ...result } };
     } catch (err) {
-      // Update task with failure
       if (supabase) {
         await supabase.from('tasks').update({
           status: 'failed',
@@ -172,7 +168,7 @@ module.exports = function registerTaskHandlers(mainWindow) {
       };
     }
 
-    const { error: auditError } = await supabase.from('audit_log').insert({
+    const { error: auditError } = await safeInsert(supabase, 'audit_log', {
       event_type: 'task_cancelled',
       task_id: id,
       user_id: auth.userId,

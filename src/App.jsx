@@ -18,6 +18,7 @@ const EmailVerified = lazy(() => import('./screens/auth/EmailVerified'));
 // Protected routes
 
 const Dashboard = lazy(() => import('./screens/Dashboard'));
+const Builds = lazy(() => import('./screens/Builds'));
 const Agents = lazy(() => import('./screens/Agents'));
 const Builder = lazy(() => import('./screens/Builder'));
 const Tasks = lazy(() => import('./screens/Tasks'));
@@ -72,6 +73,7 @@ export default function App() {
             <Route element={<RequireAuth />}>
               <Route element={<AppShell />}>
                 <Route path="/" element={<Dashboard />} />
+                <Route path="/builds" element={<Builds />} />
                 <Route path="/agents" element={<Agents />} />
                 <Route path="/builder" element={<Builder />} />
                 <Route path="/tasks" element={<Tasks />} />

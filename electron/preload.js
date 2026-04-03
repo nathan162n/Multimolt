@@ -104,6 +104,13 @@ const ALLOWED_INVOKE = [
   'db:skills:upsert',
   'db:skills:delete',
 
+  // Database — builds
+  'db:builds:list',
+  'db:builds:get',
+  'db:builds:create',
+  'db:builds:update',
+  'db:builds:delete',
+
   // Database — settings
   'db:settings:get',
   'db:settings:set',

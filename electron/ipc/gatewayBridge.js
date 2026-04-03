@@ -635,6 +635,20 @@ class GatewayBridge {
       }
     }
 
+    // Build lifecycle events — sync to Supabase
+    if (frame.event === 'build') {
+      const payload = frame.payload || {};
+      const status = payload.status;
+
+      if (status === 'started') {
+        this._syncBuildStarted(payload);
+      } else if (status === 'completed') {
+        this._syncBuildCompletion(payload.buildId, 'completed', payload);
+      } else if (status === 'failed') {
+        this._syncBuildCompletion(payload.buildId, 'failed', payload);
+      }
+    }
+
     // Task lifecycle events — also sync to Supabase
     if (frame.event === 'task') {
       const payload = frame.payload || {};
@@ -695,7 +709,8 @@ class GatewayBridge {
       }
 
       if (userId) {
-        const { error: auditErr } = await supabase.from('audit_log').insert({
+        const { safeInsert } = require('../services/supabase');
+        const { error: auditErr } = await safeInsert(supabase, 'audit_log', {
           event_type: `task_${status}`,
           task_id: taskId,
           user_id: userId,
@@ -708,6 +723,93 @@ class GatewayBridge {
       }
     } catch (err) {
       console.error('[GatewayBridge] Failed to sync task completion to DB:', err.message);
+    }
+  }
+
+  /**
+   * Create or update a build record in Supabase when the gateway reports a build started.
+   * @param {object} payload
+   * @private
+   */
+  async _syncBuildStarted(payload) {
+    if (!payload?.buildId) return;
+    try {
+      const { getSupabase, getUserId } = require('../services/supabase');
+      const supabase = getSupabase();
+      if (!supabase) return;
+      const userId = getUserId();
+
+      const now = new Date().toISOString();
+      const record = {
+        id: payload.buildId,
+        title: payload.title || payload.goal || 'Untitled build',
+        description: payload.description || null,
+        status: 'running',
+        agent_id: payload.agentId || null,
+        task_id: payload.taskId || null,
+        metadata: payload.metadata || {},
+        started_at: now,
+        created_at: now,
+      };
+      if (userId) record.user_id = userId;
+
+      const { safeUpsert } = require('../services/supabase');
+      const { error } = await safeUpsert(supabase, 'builds', record, { onConflict: 'id' });
+
+      if (error) {
+        console.error('[GatewayBridge] Failed to sync build started:', error.message);
+      }
+    } catch (err) {
+      console.error('[GatewayBridge] Failed to sync build started:', err.message);
+    }
+  }
+
+  /**
+   * Sync a build completion/failure event from the gateway to Supabase.
+   * @param {string} buildId
+   * @param {string} status  'completed' or 'failed'
+   * @param {object} payload
+   * @private
+   */
+  async _syncBuildCompletion(buildId, status, payload) {
+    if (!buildId) return;
+    try {
+      const { getSupabase, getUserId } = require('../services/supabase');
+      const supabase = getSupabase();
+      if (!supabase) return;
+
+      const now = new Date().toISOString();
+      const updates = {
+        status,
+        output: payload?.output || payload?.result || payload?.error || null,
+        artifact_url: payload?.artifactUrl || null,
+        completed_at: now,
+      };
+
+      const { error } = await supabase
+        .from('builds')
+        .update(updates)
+        .eq('id', buildId);
+
+      if (error) {
+        console.error('[GatewayBridge] Failed to sync build completion:', error.message);
+      }
+
+      const userId = getUserId();
+      if (userId) {
+        const { safeInsert } = require('../services/supabase');
+        const { error: auditErr } = await safeInsert(supabase, 'audit_log', {
+          event_type: `build_${status}`,
+          payload: { buildId, output: updates.output },
+          user_id: userId,
+          created_at: now,
+        });
+        if (auditErr) {
+          console.error('[GatewayBridge] audit_log insert for build failed:', auditErr.message);
+        }
+      }
+    } catch (err) {
+      console.error('[GatewayBridge] Failed to sync build completion to DB:', err.message);
     }
   }
 
