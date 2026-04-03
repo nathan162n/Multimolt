@@ -138,6 +138,18 @@ function createWindow() {
     }
   });
 
+  // When the user restarts the gateway from a terminal (`openclaw gateway restart`),
+  // refocus the app to retry immediately instead of waiting on backoff alone.
+  let lastGatewayFocusReconnectAt = 0;
+  mainWindow.on('focus', () => {
+    const now = Date.now();
+    if (now - lastGatewayFocusReconnectAt < 4000) return;
+    if (gatewayBridge.isConnected || !gatewayBridge.shouldReconnect || !gatewayBridge._url) return;
+    lastGatewayFocusReconnectAt = now;
+    gatewayBridge.reconnectDelay = 1000;
+    gatewayBridge.connect(gatewayBridge._url);
+  });
+
   // Log renderer errors for debugging
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     console.error(`[HiveMind] Page failed to load: ${errorCode} ${errorDescription}`);

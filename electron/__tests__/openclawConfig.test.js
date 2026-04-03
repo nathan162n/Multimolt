@@ -123,6 +123,7 @@ describe('openclawConfig', () => {
     const config = buildConfig([]);
 
     expect(config.gateway).toEqual({
+      mode: 'local',
       port: 18789,
       bind: 'loopback',
       auth: { mode: 'token' },

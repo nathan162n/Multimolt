@@ -5,6 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:mock": "concurrently -n mock,vite,electron \"npm run mock-gateway\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
     "dist": "vite build && electron-builder",
     "lint": "eslint src --ext .js,.jsx",

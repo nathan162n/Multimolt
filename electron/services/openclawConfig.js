@@ -67,13 +67,15 @@ function buildConfig(agents, options = {}) {
         model: { primary: defaultModel },
         sandbox: { mode: 'all' },
         heartbeat: { every: '30m', target: 'last' },
-        compaction: { mode: 'safeguard', timeoutSeconds: 900 },
+        // OpenClaw CLI (e.g. 2026.3.x) rejects compaction.timeoutSeconds — keep schema minimal.
+        compaction: { mode: 'safeguard' },
         timeoutSeconds: 600,
         contextTokens: 200000,
       },
       list: agentList,
     },
     gateway: {
+      mode: 'local',
       port: gatewayPort,
       bind: 'loopback',
       auth: { mode: authMode },

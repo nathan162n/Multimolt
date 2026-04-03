@@ -101,6 +101,9 @@ class GatewayBridge {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
     }
+    // Resume auto-reconnect after any intentional connect() (e.g. macOS window reopen).
+    // disconnect() sets this false so user "Disconnect" stays off until they connect again.
+    this.shouldReconnect = true;
     if (this._challengeTimer) {
       clearTimeout(this._challengeTimer);
       this._challengeTimer = null;
@@ -209,6 +212,12 @@ class GatewayBridge {
         reason: reason ? reason.toString() : '',
         wasConnected,
       });
+
+      // After a working session (or completed handshake), retry soon — e.g. user ran
+      // `openclaw gateway restart` and the gateway is back within seconds.
+      if (wasConnected || handshakeDone) {
+        this.reconnectDelay = 1000;
+      }
 
       this._scheduleReconnect();
     });
