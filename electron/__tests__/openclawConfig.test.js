@@ -148,6 +148,16 @@ describe('openclawConfig', () => {
     expect(config.bindings).toEqual([]);
   });
 
+  it('includes tools.gatewayToken when OPENCLAW_GATEWAY_TOKEN is set', () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', '  my-token  ');
+    delete require_.cache[openclawConfigPath];
+    const { buildConfig: bc } = require_(openclawConfigPath);
+    const config = bc([]);
+    expect(config.tools.gatewayToken).toBe('my-token');
+    vi.unstubAllEnvs();
+    delete require_.cache[openclawConfigPath];
+  });
+
   it('accepts custom gateway options', () => {
     const config = buildConfig([], { gatewayPort: 9999, authMode: 'none' });
 

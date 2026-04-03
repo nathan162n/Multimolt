@@ -24,6 +24,7 @@ const { getOpenClawBase, getWorkspacePath, getAgentDir, safeReadFile } = require
  */
 function buildConfig(agents, options = {}) {
   const { gatewayPort = 18789, authMode = 'token' } = options;
+  const gatewayToken = String(process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
 
   const agentList = agents.map((agent) => {
     const entry = {
@@ -86,6 +87,8 @@ function buildConfig(agents, options = {}) {
       profile: 'coding',
       exec: { backgroundMs: 10000, timeoutSec: 1800 },
       sessions: { visibility: 'tree' },
+      // OpenClaw CLI health checks expect credentials when using URL overrides; matches OPENCLAW_GATEWAY_TOKEN / HiveMind bridge.
+      ...(gatewayToken ? { gatewayToken } : {}),
     },
     skills: {
       entries: {},

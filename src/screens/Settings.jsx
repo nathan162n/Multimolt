@@ -74,6 +74,9 @@ function useSavedFlash() {
 
 const isElectron = typeof window !== 'undefined' && !!window.hivemind;
 
+/** Default WebSocket URL — loopback IPv4 (matches electron main resolveGatewayUrl fallback). */
+const DEFAULT_GATEWAY_WS_URL = 'ws://127.0.0.1:18789';
+
 /* ------------------------------------------------------------------ */
 /*  API Key Field                                                      */
 /* ------------------------------------------------------------------ */
@@ -183,7 +186,7 @@ function GeneralTab({ settings, onUpdate }) {
 
   useEffect(() => {
     setGatewayUrl(
-      settings.gateway_url || settings.gatewayUrl || 'ws://127.0.0.1:18789'
+      settings.gateway_url || settings.gatewayUrl || DEFAULT_GATEWAY_WS_URL
     );
     setAutoStart(settings.gateway_auto_start ?? settings.autoStartGateway ?? true);
   }, [settings]);
@@ -232,7 +235,7 @@ function GeneralTab({ settings, onUpdate }) {
               <Input
                 value={gatewayUrl}
                 onChange={(e) => setGatewayUrl(e.target.value)}
-                placeholder="ws://127.0.0.1:18789"
+                placeholder={DEFAULT_GATEWAY_WS_URL}
                 className="font-[family-name:var(--font-mono)] text-xs flex-1"
               />
               <Button

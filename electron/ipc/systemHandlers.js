@@ -21,6 +21,7 @@ async function getStore() {
       name: 'hivemind-settings',
       defaults: {
         gatewayUrl: 'ws://127.0.0.1:18789',
+        gateway_url: 'ws://127.0.0.1:18789',
         autoStartGateway: false,
         approvalThreshold: 'medium',
         autoRejectMinutes: 0,
@@ -202,7 +203,15 @@ module.exports = function registerSystemHandlers(mainWindow) {
     if (key) {
       return { data: { key, value: s.get(key) } };
     }
-    return { data: s.store };
+    const DEFAULT_WS = 'ws://127.0.0.1:18789';
+    const merged = { ...s.store };
+    const url =
+      (typeof merged.gateway_url === 'string' && merged.gateway_url.trim()) ||
+      (typeof merged.gatewayUrl === 'string' && merged.gatewayUrl.trim()) ||
+      DEFAULT_WS;
+    merged.gateway_url = url;
+    merged.gatewayUrl = url;
+    return { data: merged };
   });
 
   /**
