@@ -20,8 +20,7 @@ async function getStore() {
     store = new Store({
       name: 'hivemind-settings',
       defaults: {
-        gatewayUrl: 'ws://127.0.0.1:18789',
-        gateway_url: 'ws://127.0.0.1:18789',
+        // gateway_url / gatewayUrl omitted — set when user saves from Settings; until then main uses .env / default
         autoStartGateway: false,
         approvalThreshold: 'medium',
         autoRejectMinutes: 0,

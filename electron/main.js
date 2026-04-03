@@ -35,14 +35,14 @@ function normalizeGatewayLoopbackUrl(url) {
 }
 
 /**
- * WebSocket URL for the OpenClaw Gateway: env wins, then electron-store
- * (gateway_url from Settings UI or legacy gatewayUrl), then default.
+ * WebSocket URL for the OpenClaw Gateway:
+ * 1) Value saved in Settings (electron-store) — so the UI URL matches the socket.
+ * 2) OPENCLAW_GATEWAY_URL when nothing is persisted (CI, first run, headless).
+ * 3) Default loopback port.
+ *
+ * Note: We do not put gateway_* in store defaults so .env can apply until the user saves from Settings.
  */
 async function resolveGatewayUrl() {
-  const envUrl = process.env.OPENCLAW_GATEWAY_URL;
-  if (envUrl && String(envUrl).trim()) {
-    return normalizeGatewayLoopbackUrl(String(envUrl).trim());
-  }
   try {
     const { default: Store } = await import('electron-store');
     const s = new Store({ name: 'hivemind-settings' });
@@ -52,6 +52,10 @@ async function resolveGatewayUrl() {
     }
   } catch (err) {
     console.warn('[HiveMind] resolveGatewayUrl:', err.message);
+  }
+  const envUrl = process.env.OPENCLAW_GATEWAY_URL;
+  if (envUrl && String(envUrl).trim()) {
+    return normalizeGatewayLoopbackUrl(String(envUrl).trim());
   }
   return 'ws://127.0.0.1:18789';
 }

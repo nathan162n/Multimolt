@@ -2,9 +2,117 @@
 
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 /** Timeout (ms) to wait for a protocol v3 challenge before falling back to v1.0 */
 const CHALLENGE_TIMEOUT_MS = 8000;
+
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+function base64UrlEncode(buf) {
+  return buf.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
+}
+
+function derivePublicKeyRaw(publicKeyPem) {
+  const spki = crypto.createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
+  if (
+    spki.length === ED25519_SPKI_PREFIX.length + 32 &&
+    spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
+  ) {
+    return spki.subarray(ED25519_SPKI_PREFIX.length);
+  }
+  return spki;
+}
+
+function fingerprintPublicKey(publicKeyPem) {
+  return crypto.createHash('sha256').update(derivePublicKeyRaw(publicKeyPem)).digest('hex');
+}
+
+function resolveIdentityDir() {
+  return path.join(os.homedir(), '.openclaw', 'identity');
+}
+
+function loadOrCreateDeviceIdentity() {
+  const filePath = path.join(resolveIdentityDir(), 'device.json');
+  try {
+    if (fs.existsSync(filePath)) {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (parsed?.version === 1 && parsed.deviceId && parsed.publicKeyPem && parsed.privateKeyPem) {
+        return { deviceId: parsed.deviceId, publicKeyPem: parsed.publicKeyPem, privateKeyPem: parsed.privateKeyPem };
+      }
+    }
+  } catch (_) { /* fall through to generate */ }
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const deviceId = fingerprintPublicKey(publicKeyPem);
+  const stored = { version: 1, deviceId, publicKeyPem, privateKeyPem, createdAtMs: Date.now() };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(stored, null, 2) + '\n', { mode: 0o600 });
+  return { deviceId, publicKeyPem, privateKeyPem };
+}
+
+function resolveDeviceAuthPath() {
+  return path.join(resolveIdentityDir(), 'device-auth.json');
+}
+
+function loadDeviceAuthToken(deviceId, role) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(resolveDeviceAuthPath(), 'utf8'));
+    if (raw?.deviceId !== deviceId) return null;
+    const entry = raw.tokens?.[role];
+    return entry?.token || null;
+  } catch (_) { return null; }
+}
+
+function storeDeviceAuthToken(deviceId, role, token, scopes) {
+  const filePath = resolveDeviceAuthPath();
+  let store = { version: 1, deviceId, tokens: {} };
+  try {
+    const existing = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (existing?.deviceId === deviceId) store = existing;
+    else store.tokens = {};
+  } catch (_) { /* start fresh */ }
+  store.deviceId = deviceId;
+  store.tokens[role] = { token, scopes, storedAtMs: Date.now() };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 });
+}
+
+function normalizeDeviceMetadata(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+}
+
+function buildDeviceAuthPayloadV3(params) {
+  return [
+    'v3',
+    params.deviceId,
+    params.clientId,
+    params.clientMode,
+    params.role,
+    params.scopes.join(','),
+    String(params.signedAtMs),
+    params.token ?? '',
+    params.nonce,
+    normalizeDeviceMetadata(params.platform),
+    normalizeDeviceMetadata(params.deviceFamily),
+  ].join('|');
+}
+
+function signDevicePayload(privateKeyPem, payload) {
+  const key = crypto.createPrivateKey(privateKeyPem);
+  return base64UrlEncode(crypto.sign(null, Buffer.from(payload, 'utf8'), key));
+}
+
+function publicKeyRawBase64Url(publicKeyPem) {
+  return base64UrlEncode(derivePublicKeyRaw(publicKeyPem));
+}
 
 class GatewayBridge {
   constructor() {
@@ -44,6 +152,8 @@ class GatewayBridge {
      * @type {string|null}
      */
     this._connectToken = null;
+    /** @type {{ deviceId: string, publicKeyPem: string, privateKeyPem: string }|null} */
+    this._deviceIdentity = null;
   }
 
   /**
@@ -277,14 +387,59 @@ class GatewayBridge {
    * @private
    */
   _handleChallenge(payload) {
-    // Cancel the v1.0 fallback timer
     if (this._challengeTimer) {
       clearTimeout(this._challengeTimer);
       this._challengeTimer = null;
     }
 
     this._protocolVersion = 3;
-    const token = this._getConnectToken();
+    const role = 'operator';
+    const scopes = ['operator.read', 'operator.write', 'operator.approvals'];
+    const nonce = payload?.nonce || '';
+    const signedAtMs = Date.now();
+    const clientId = 'gateway-client';
+    const clientMode = 'backend';
+    const platform = process.platform;
+
+    if (!this._deviceIdentity) {
+      try { this._deviceIdentity = loadOrCreateDeviceIdentity(); }
+      catch (err) { console.error('[GatewayBridge] Failed to load device identity:', err.message); }
+    }
+
+    const explicitToken = this._getConnectToken() || undefined;
+    const storedDeviceToken = this._deviceIdentity
+      ? loadDeviceAuthToken(this._deviceIdentity.deviceId, role)
+      : null;
+    const resolvedDeviceToken = !explicitToken ? (storedDeviceToken || undefined) : undefined;
+    const effectiveAuthToken = explicitToken || resolvedDeviceToken || undefined;
+    const signatureToken = effectiveAuthToken || null;
+
+    let device;
+    if (this._deviceIdentity) {
+      const authPayload = buildDeviceAuthPayloadV3({
+        deviceId: this._deviceIdentity.deviceId,
+        clientId,
+        clientMode,
+        role,
+        scopes,
+        signedAtMs,
+        token: signatureToken,
+        nonce,
+        platform,
+        deviceFamily: undefined,
+      });
+      const signature = signDevicePayload(this._deviceIdentity.privateKeyPem, authPayload);
+      device = {
+        id: this._deviceIdentity.deviceId,
+        publicKey: publicKeyRawBase64Url(this._deviceIdentity.publicKeyPem),
+        signature,
+        signedAt: signedAtMs,
+        nonce,
+      };
+    }
+
+    const auth = {};
+    if (effectiveAuthToken) auth.token = effectiveAuthToken;
 
     this.sendFrame({
       type: 'req',
@@ -294,15 +449,15 @@ class GatewayBridge {
         minProtocol: 3,
         maxProtocol: 3,
         client: {
-          id: 'hivemind-os',
+          id: clientId,
           version: '0.1.0',
-          platform: process.platform,
-          mode: 'operator',
+          platform,
+          mode: clientMode,
         },
-        role: 'operator',
-        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
-        auth: { mode: 'token', token },
-        nonce: payload?.nonce || '',
+        role,
+        scopes,
+        auth: Object.keys(auth).length > 0 ? auth : undefined,
+        device,
       },
     });
   }
@@ -345,6 +500,21 @@ class GatewayBridge {
       this._reconnectTimer = null;
     }
     this.reconnectDelay = 1000;
+
+    // Persist device auth token for reconnection if the gateway issues one
+    const authInfo = payload?.auth;
+    if (authInfo?.deviceToken && this._deviceIdentity) {
+      try {
+        storeDeviceAuthToken(
+          this._deviceIdentity.deviceId,
+          authInfo.role ?? 'operator',
+          authInfo.deviceToken,
+          authInfo.scopes ?? []
+        );
+      } catch (err) {
+        console.error('[GatewayBridge] Failed to store device auth token:', err.message);
+      }
+    }
 
     // Start tick keepalive if the gateway specifies an interval
     const tickMs = payload?.policy?.tickIntervalMs || payload?.tick?.interval;

@@ -1,7 +1,7 @@
 import React, { createContext, useEffect, useState, useCallback, useRef } from 'react';
 import useAgentStore from '../store/agentStore';
 import useTaskStore from '../store/taskStore';
-import { getGatewayStatus, connectGateway } from '../services/openclaw';
+import { getGatewayStatus, connectGateway, getSettings } from '../services/openclaw';
 
 /**
  * GatewayContext — React context that subscribes to all gateway and agent
@@ -37,7 +37,13 @@ export function GatewayProvider({ children }) {
     if (!window.hivemind?.invoke) return;
     try {
       setError(null);
-      await connectGateway();
+      const res = await getSettings();
+      const data = res?.data ?? res ?? {};
+      const url =
+        (typeof data.gateway_url === 'string' && data.gateway_url.trim()) ||
+        (typeof data.gatewayUrl === 'string' && data.gatewayUrl.trim()) ||
+        '';
+      await connectGateway(url || undefined);
       setStatus('connected');
       setError(null);
     } catch (e) {
